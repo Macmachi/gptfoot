@@ -9,7 +9,7 @@
 # Ajouter la coupe de suisse ?!
 # Envoyer le classement 30 minutes après le match pour le championnat 
 # Récupérer saison ID 
-### EXPLOIT CONNU S###
+### EXPLOIT CONNUS ###
 *(1 match sur 100) un goal soit annulé et qu'un autre soit marqué dans la même minute = confusion de la logique entre l'annulation du premier but avec le second but marqué
 *(1 match sur 100) Si la correction de temps écoulé pour le premier but est reçue après un autre but est marqué (intervalle de 5min), la logique actuelle considérera le premier but corrigé comme un nouveau but.
 """
@@ -32,6 +32,8 @@ LEAGUE_ID = ""
 SEASON_ID = "" 
 # l'ID du chat autorisé à mettre à jour dans le fichier json chat_ids_sfcbot aussi !!!
 AUTHORIZED_CHAT_ID = YOUR_CHAT_ID 
+# OpenAI api key
+API_KEY = ""
 
 paris_tz = pytz.timezone('Europe/Paris')
 sent_events = set()
@@ -735,7 +737,6 @@ async def send_end_message(chat_id, home_team, away_team, home_score, away_score
 
 
 async def call_chatgpt_api(match_statistics, events):
-    API_KEY = ""
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {API_KEY}"
