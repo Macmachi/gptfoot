@@ -18,4 +18,5 @@ Go to https://platform.openai.com/account/api-keys to get open ai api key
 Go to Contact https://telegram.me/BotFather on telegram to get bot token
 
 My Github : https://github.com/Macmachi 
+
 My XMR wallet if you like my telegram bot : 47aRxaose3a6Uoi8aEo6sDPz3wiqfTePt725zDbgocNuBFSBSXmZNSKUda6YVipRMC9r6N8mD99QjFNDvz9wYGmqHUoMHbR
