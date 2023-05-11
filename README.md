@@ -14,6 +14,7 @@ The chat ID allowed to update in the json file chat_ids_sfcbot too!!!
 AUTHORIZED_CHAT_ID = YOUR_CHAT_ID 
 
 Open AI api key
+
 API_KEY = ""
 
 Go to https://dashboard.api-football.com/ to get an football api key and your_team id (SERVETTE_FC_ID), league id and season id
