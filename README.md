@@ -14,7 +14,9 @@ Ligne 738 votre clé d'api open ai (fonctionne mieux avec gpt 4 pour l'analyse)
 API_KEY = ""
 
 Go to https://dashboard.api-football.com/ to get an football api key and your_team id (SERVETTE_FC_ID), league id and season id
+
 Go to https://platform.openai.com/account/api-keys to get open ai api key
+
 Go to Contact https://telegram.me/BotFather on telegram to get bot token
 
 My Github : https://github.com/Macmachi 
