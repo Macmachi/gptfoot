@@ -9,7 +9,7 @@ SERVETTE_FC_ID = ""
 LEAGUE_ID = "" 
 SEASON_ID = "" 
 
-# l'ID du chat autorisé à mettre à jour dans le fichier json chat_ids_sfcbot aussi !!!
+l'ID du chat autorisé à mettre à jour dans le fichier json chat_ids_sfcbot aussi !!!
 
 AUTHORIZED_CHAT_ID = YOUR_CHAT_ID 
 
