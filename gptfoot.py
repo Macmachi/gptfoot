@@ -2,10 +2,11 @@
 """
 ### INFORMATIONS SUR LE SCRIPT GPTFOOT ###
 # AUTEUR :  Arnaud (https://github.com/Macmachi) 
-# VERSION : v1.0.5
+# VERSION : v1.0.7
 # FONCTIONALITES : Bot telegram pour suivre les événements de matchs d'un club dans une compétition (sans trop de messages) : Début du match avec composition, buts, cartons rouges et analyse du match par GPT4 à la fin. 
 # My XMR wallet if you like my telegram bot : 47aRxaose3a6Uoi8aEo6sDPz3wiqfTePt725zDbgocNuBFSBSXmZNSKUda6YVipRMC9r6N8mD99QjFNDvz9wYGmqHUoMHbR
 ### FONCTIONALITES NICE TO HAVE ###
+# Mettre dans un JSON les clés API et données de foot !
 # Ajouter la coupe de suisse ?!
 # Envoyer le classement 30 minutes après le match pour le championnat 
 # Récupérer saison ID 
@@ -24,17 +25,34 @@ import os
 import aiohttp
 import pytz
 import httpx
+import configparser
 
-TOKEN_TELEGRAM = ""
-API_FOOTBALL_KEY = ""
-SERVETTE_FC_ID = "" 
-LEAGUE_ID = "" 
-SEASON_ID = "" 
-# l'ID du chat autorisé à mettre à jour dans le fichier json chat_ids_sfcbot aussi !!!
-AUTHORIZED_CHAT_ID = YOUR_CHAT_ID 
-# OpenAI api key
-API_KEY = ""
+config = configparser.ConfigParser()
 
+# Please replace this information in the code (NOT HERE) with your language and team name for the AI analysis.
+''' 
+    conversation_history = [
+    {
+        "role": "system",
+        "content": (
+            "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. "
+            "En utilisant les événements et statistiques de match fournis, donne une analyse détaillée de la prestation du Servette FC pendant le match."
+        ),
+    }
+]
+'''
+
+# KEYs from the INI file
+API_KEY = config['KEYS']['OPENAI_API_KEY']
+TOKEN_TELEGRAM = config['KEYS']['TELEGRAM_BOT_TOKEN']
+# The chat ID allowed to update in the json file chat_ids_sfcbot too!!!
+AUTHORIZED_CHAT_ID = config['KEYS']['CHAT_ID']
+TEAM_ID = config['KEYS']['TEAM_ID']
+LEAGUE_ID = config['KEYS']['LEAGUE_ID']
+SEASON_ID = config['KEYS']['SEASON_ID']
+API_FOOTBALL_KEY = config['KEYS']['API_FOOTBALL_KEY']
+
+# You may need to do this depending on your server's time zone
 paris_tz = pytz.timezone('Europe/Paris')
 sent_events = set()
 
@@ -141,7 +159,7 @@ async def check_match_periodically():
 # Vérifie si un match est prévu aujourd'hui et effectue les actions appropriées, comme envoyer des messages de début et de fin de match, et vérifier les événements pendant le match.
 async def check_matches(chat_id):
     global sent_events
-    log_message("get_servette_match_info() appelée.")
+    log_message("get_team_match_info() appelée.")
     match_today, match_start_time, fixture_id = await is_match_today()
     log_message(f"Résultat de is_match_today() dans la fonction check_match_periodically : match_today = {match_today}, match_start_time = {match_start_time}, fixture_id = {fixture_id}")
     
@@ -196,7 +214,7 @@ async def wait_for_match_start(fixture_id):
         log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time}, match_data (pas log)\n")  
         return match_status, match_date, elapsed_time, match_data
     
-# Récupère le statut et la date du match de Servette FC dans la ligue spécifiée.
+# Récupère le statut et la date du match de la team dans la ligue spécifiée.
 async def get_check_match_status(fixture_id):
     log_message("get_check_match_status() appelée.")
     url = f"https://v3.football.api-sports.io/fixtures?id={fixture_id}"
@@ -278,7 +296,7 @@ async def is_match_today():
     log_message("is_match_today() appelée.")
     
     responses = []
-    url = f"https://v3.football.api-sports.io/fixtures?team={SERVETTE_FC_ID}&league={LEAGUE_ID}&next=1"
+    url = f"https://v3.football.api-sports.io/fixtures?team={TEAM_ID}&league={LEAGUE_ID}&next=1"
     headers = {
         "x-apisports-key": API_FOOTBALL_KEY
     }
@@ -320,8 +338,8 @@ async def is_match_today():
     return match_today, match_start_time, fixture_id
 
 # Récupère les événements en direct (buts, cartons, etc.) et le statut du match pour un match donné.
-async def get_servette_live_events(fixture_id):
-    log_message("get_servette_live_events() appelée.")
+async def get_team_live_events(fixture_id):
+    log_message("get_team_live_events() appelée.")
     events_url = f"https://v3.football.api-sports.io/fixtures?id={fixture_id}"
     headers = {
         "x-apisports-key": API_FOOTBALL_KEY
@@ -338,11 +356,11 @@ async def get_servette_live_events(fixture_id):
                     raise RateLimitExceededError("Le nombre d'appels à l'API est dépassé. Le suivi du match est stoppé.")
                 
                 events_data = await events_response.json()
-                #log_message(f"Réponse de l'API pour get_servette_live_events : {events_data}")
+                #log_message(f"Réponse de l'API pour get_team_live_events : {events_data}")
                 if not events_data.get('response'):
                     return None, None, None, None, None
                 match_info = events_data['response'][0]
-                #log_message(f"Réponse de l'API pour get_servette_live_events : {match_info}\n")
+                #log_message(f"Réponse de l'API pour get_team_live_events : {match_info}\n")
                 events = match_info['events']
                 # Ajout du statut du match
                 match_status = match_info['fixture']['status']['short']
@@ -356,10 +374,10 @@ async def get_servette_live_events(fixture_id):
                 # Retourne les événements, le statut du match, les données du match et les statistiques du match
                 return events, match_status, elapsed_time, match_data, match_statistics
     except aiohttp.ClientError as e:
-        log_message(f"Erreur lors de la requête à l'API (via get_servette_live_events): {e}")
+        log_message(f"Erreur lors de la requête à l'API (via get_team_live_events): {e}")
         return None, None, None, None, None
     except Exception as e:
-        log_message(f"Erreur inattendue lors de la requête à l'API (via get_servette_live_events): {e}")
+        log_message(f"Erreur inattendue lors de la requête à l'API (via get_team_live_events): {e}")
         return None, None, None, None, None
 
 # Fonction asynchrone pour vérifier les événements en cours pendant un match, tels que les buts et les cartons rouges, et envoyer des messages correspondants au chat_id fourni.
@@ -371,8 +389,8 @@ async def check_events(chat_id, fixture_id):
     
     while True:
         try:
-            events, match_status, elapsed_time, match_data, match_statistics = await get_servette_live_events(fixture_id)
-            log_message(f"Données récupérées de get_servette_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n match_data : (pas log)\n")
+            events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
+            log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n match_data : (pas log)\n")
             # Calcul de l'intervalle optimisé (92 est le nombre d'appel max d'appel à l'api pour cette fonction en fonction du temps de match estimé)
             # DEBUG : Pour API payante max 7500 calls par jours
             #total_duree_championnat = 45 + 5 + 45 + 10
@@ -390,8 +408,8 @@ async def check_events(chat_id, fixture_id):
                 # Ajout d'une boucle pour vérifier le statut du match après la pause
                 while True:
                     log_message(f"On vérifie si le match a repris (statut actuel : {match_status})")
-                    events, match_status, elapsed_time, match_data, match_statistics = await get_servette_live_events(fixture_id)
-                    log_message(f"Données récupérées de get_servette_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n match_data : (pas log)\n")
+                    events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
+                    log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n match_data : (pas log)\n")
 
                     if match_status != 'HT':
                         log_message(f"Le match a repris (statut actuel : {match_status}), continuation de l'execution du code (check_events)")
@@ -516,7 +534,7 @@ async def check_events(chat_id, fixture_id):
         # Pause avant de vérifier à nouveau les événements
         await asyncio.sleep(interval)
 
-# Envoie un message de début de match aux utilisateurs avec des informations sur le match, la composition de l'équipe, le classement du Servette FC et les prédictions.
+# Envoie un message de début de match aux utilisateurs avec des informations sur le match, les compositions des équipes.
 async def send_start_message(chat_id, match_data):
     log_message("send_start_message() appelée.")
     
@@ -547,8 +565,6 @@ async def send_start_message(chat_id, match_data):
         log_message(f"Message de début de match envoyé au chat {chat_id}.")
     except BadRequest as e:
         log_message(f"Erreur lors de l'envoi du message de goal (BadRequest) : {e}")
-    except ChatNotFound as e:
-        log_message(f"Erreur lors de l'envoi du message de goal (ChatNotFound) : {e}")
     except ClientConnectorError as e:
         log_message(f"Erreur lors de l'envoi du message de goal (ClientConnectorError) : {e}")
     except NetworkError as e:
@@ -598,8 +614,6 @@ async def send_goal_message(chat_id, player, team, player_statistics, elapsed_ti
         log_message(f"Message de but envoyé au chat {chat_id}.")
     except BadRequest as e:
         log_message(f"Erreur lors de l'envoi du message de goal (BadRequest) : {e}")
-    except ChatNotFound as e:
-        log_message(f"Erreur lors de l'envoi du message de goal (ChatNotFound) : {e}")
     except ClientConnectorError as e:
         log_message(f"Erreur lors de l'envoi du message de goal (ClientConnectorError) : {e}")
     except NetworkError as e:
@@ -647,8 +661,6 @@ async def send_goal_edited_message(chat_id, player, team, player_statistics, ela
         log_message(f"Message de mise à jour du but envoyé au chat {chat_id}.")
     except BadRequest as e:
         log_message(f"Erreur lors de l'envoi du message de goal (BadRequest) : {e}")
-    except ChatNotFound as e:
-        log_message(f"Erreur lors de l'envoi du message de goal (ChatNotFound) : {e}")
     except ClientConnectorError as e:
         log_message(f"Erreur lors de l'envoi du message de goal (ClientConnectorError) : {e}")
     except NetworkError as e:
@@ -667,8 +679,6 @@ async def send_goal_cancelled_message(chat_id, previous_score, current_score):
         log_message(f"Message de but annulé envoyé au chat {chat_id}.")
     except BadRequest as e:
         log_message(f"Erreur lors de l'envoi du message de goal (BadRequest) : {e}")
-    except ChatNotFound as e:
-        log_message(f"Erreur lors de l'envoi du message de goal (ChatNotFound) : {e}")
     except ClientConnectorError as e:
         log_message(f"Erreur lors de l'envoi du message de goal (ClientConnectorError) : {e}")
     except NetworkError as e:
@@ -686,8 +696,6 @@ async def send_red_card_message(chat_id, player, team, elapsed_time):
         log_message(f"Message de carton rouge envoyé au chat {chat_id}.")
     except BadRequest as e:
         log_message(f"Erreur lors de l'envoi du message de goal (BadRequest) : {e}")
-    except ChatNotFound as e:
-        log_message(f"Erreur lors de l'envoi du message de goal (ChatNotFound) : {e}")
     except ClientConnectorError as e:
         log_message(f"Erreur lors de l'envoi du message de goal (ClientConnectorError) : {e}")
     except NetworkError as e:
@@ -695,7 +703,7 @@ async def send_red_card_message(chat_id, player, team, elapsed_time):
     except Exception as e:
         log_message(f"Erreur inattendue lors de l'envoi du message de goal : {e}")
 
-# Envoie un message de fin de match aux utilisateurs avec le score final et le classement du Servette FC (si le match n'est pas en coupe).
+# Envoie un message de fin de match aux utilisateurs avec le score final.
 async def send_end_message(chat_id, home_team, away_team, home_score, away_score, match_statistics, events):
     log_message("send_end_message() appelée.")
     message = f"🏁 Fin du match !\n{home_team} {home_score} - {away_score} {away_team}\n\n"
@@ -724,10 +732,10 @@ async def send_end_message(chat_id, home_team, away_team, home_score, away_score
     try:
         await bot.send_message(chat_id=chat_id, text=message)
         log_message(f"Message de fin de match envoyé au chat {chat_id}.")
+    except ChatNotFound as e:
+        log_message(f"Erreur lors de l'envoi du message de goal (ChatNotFound) : {e}")        
     except BadRequest as e:
         log_message(f"Erreur lors de l'envoi du message de goal (BadRequest) : {e}")
-    except ChatNotFound as e:
-        log_message(f"Erreur lors de l'envoi du message de goal (ChatNotFound) : {e}")
     except ClientConnectorError as e:
         log_message(f"Erreur lors de l'envoi du message de goal (ClientConnectorError) : {e}")
     except NetworkError as e:
