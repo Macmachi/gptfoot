@@ -2,7 +2,7 @@
 """
 ### INFORMATIONS SUR LE SCRIPT GPTFOOT ###
 # AUTEUR :  Arnaud (https://github.com/Macmachi) 
-# VERSION : v1.0.7
+# VERSION : v1.1
 # FONCTIONALITES : Bot telegram pour suivre les événements de matchs d'un club dans une compétition (sans trop de messages) : Début du match avec composition, buts, cartons rouges et analyse du match par GPT4 à la fin. 
 # My XMR wallet if you like my telegram bot : 47aRxaose3a6Uoi8aEo6sDPz3wiqfTePt725zDbgocNuBFSBSXmZNSKUda6YVipRMC9r6N8mD99QjFNDvz9wYGmqHUoMHbR
 ### FONCTIONALITES NICE TO HAVE ###
@@ -28,6 +28,8 @@ import httpx
 import configparser
 
 config = configparser.ConfigParser()
+# read the content of the config.ini file
+config.read('config.ini')  
 
 # Please replace this information in the code (NOT HERE) with your language and team name for the AI analysis.
 ''' 
@@ -42,13 +44,18 @@ config = configparser.ConfigParser()
 ]
 '''
 
+#Pour le DEBUG
+#TOKEN_TELEGRAM = "5610161447:AAHSHMQfxvSiRNgjPAxywuVYB_0xFDK36uo"
+#AUTHORIZED_CHAT_ID = 419203529  
+
 # KEYs from the INI file
 API_KEY = config['KEYS']['OPENAI_API_KEY']
 TOKEN_TELEGRAM = config['KEYS']['TELEGRAM_BOT_TOKEN']
 # The chat ID allowed to update in the json file chat_ids_sfcbot too!!!
 AUTHORIZED_CHAT_ID = config['KEYS']['CHAT_ID']
 TEAM_ID = config['KEYS']['TEAM_ID']
-LEAGUE_ID = config['KEYS']['LEAGUE_ID']
+#Maintenant définie dans la variable is_match_today
+#LEAGUE_ID = config['KEYS']['LEAGUE_ID']
 SEASON_ID = config['KEYS']['SEASON_ID']
 API_FOOTBALL_KEY = config['KEYS']['API_FOOTBALL_KEY']
 
@@ -160,7 +167,7 @@ async def check_match_periodically():
 async def check_matches(chat_id):
     global sent_events
     log_message("get_team_match_info() appelée.")
-    match_today, match_start_time, fixture_id = await is_match_today()
+    match_today, match_start_time, fixture_id = await is_match_today() # type: ignore
     log_message(f"Résultat de is_match_today() dans la fonction check_match_periodically : match_today = {match_today}, match_start_time = {match_start_time}, fixture_id = {fixture_id}")
     
     if match_today:
@@ -295,25 +302,31 @@ async def get_check_match_status(fixture_id):
 async def is_match_today():
     log_message("is_match_today() appelée.")
     
+    # Mettez vos identifiants de ligue ici (Champions league (A MODIFIER en fonction des résultats pour éviter trop de call inutile pour europa, conference league!!!), championnat et coupe) et adapter les intervalles car prolongation pour certains championnats !
+    LEAGUE_IDS = [2, 207, 209]  
     responses = []
-    url = f"https://v3.football.api-sports.io/fixtures?team={TEAM_ID}&league={LEAGUE_ID}&next=1"
-    headers = {
-        "x-apisports-key": API_FOOTBALL_KEY
-    }
+    
+    global current_league_id  # déclaration de la variable comme globale
+    current_league_id = None  # Variable pour stocker l'ID de la ligue en cours de traitement
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
-                data = await resp.json()
-                #log_message(f"Réponse de l'API pour is_match_today : {data}")
-                if data.get('response'):
-                    responses.append(data)
+            for LEAGUE_ID in LEAGUE_IDS:
+                url = f"https://v3.football.api-sports.io/fixtures?team={TEAM_ID}&league={LEAGUE_ID}&next=1"
+                headers = {
+                    "x-apisports-key": API_FOOTBALL_KEY
+                }
+                async with session.get(url, headers=headers) as resp:
+                    data = await resp.json()
+                    if data.get('response'):
+                        responses.append(data)
+                        current_league_id = LEAGUE_ID  # Mettez à jour l'ID de la ligue en cours de traitement
     except aiohttp.ClientError as e:
         log_message(f"Erreur lors de la requête à l'API (via is_match_today): {e}")
-        return False, None, None
+        return False, None, None, None
     except Exception as e:
         log_message(f"Erreur inattendue lors de la requête à l'API (via is_match_today): {e}")
-        return False, None, None
+        return False, None, None, None
 
     match_today = False
     match_start_time = None
@@ -334,8 +347,7 @@ async def is_match_today():
                 fixture_id = response['response'][0]['fixture']['id']
                 break
             
-    #log_message(f"L'heure du début du match d'aujourdhui renvoyé par is_match_today {match_start_time}")
-    return match_today, match_start_time, fixture_id
+    return match_today, match_start_time, fixture_id, current_league_id
 
 # Récupère les événements en direct (buts, cartons, etc.) et le statut du match pour un match donné.
 async def get_team_live_events(fixture_id):
@@ -396,8 +408,19 @@ async def check_events(chat_id, fixture_id):
             #total_duree_championnat = 45 + 5 + 45 + 10
             #interval = (total_duree_championnat * 60) / 500
             # Pour API gratuite
-            total_duree_championnat = 5 + 45 + 10 + 45 + 10
-            interval = (total_duree_championnat * 60) / 92
+            # Utilisez current_league_id pour définir un intervalle différent selon l'id de la ligue
+            if current_league_id == 2:
+                total_duree_championnat = 5 + 45 + 10 + 45 + 10 + 30
+                interval = (total_duree_championnat * 60) / 90
+            elif current_league_id == 207:
+                total_duree_championnat = 5 + 45 + 10 + 45 + 10
+                interval = (total_duree_championnat * 60) / 90
+            elif current_league_id == 209:
+                total_duree_championnat = 5 + 45 + 10 + 45 + 10 + 30
+                interval = (total_duree_championnat * 60) / 90
+            else:
+                total_duree_championnat = 5 + 45 + 10 + 45 + 10
+                interval = (total_duree_championnat * 60) / 90
 
             # Pause de 13 minutes (780 secondes) si le statut du match est 'HT' (mi-temps) car api vérifie statut toutes les 1-2minutes
             if match_status == 'HT':
