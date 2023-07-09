@@ -44,10 +44,6 @@ config.read('config.ini')
 ]
 '''
 
-#Pour le DEBUG
-#TOKEN_TELEGRAM = "5610161447:AAHSHMQfxvSiRNgjPAxywuVYB_0xFDK36uo"
-#AUTHORIZED_CHAT_ID = 419203529  
-
 # KEYs from the INI file
 API_KEY = config['KEYS']['OPENAI_API_KEY']
 TOKEN_TELEGRAM = config['KEYS']['TELEGRAM_BOT_TOKEN']
