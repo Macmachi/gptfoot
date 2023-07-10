@@ -1,7 +1,7 @@
 # gptfoot
 Bot telegram to follow the match events of a club in a competition (without too many messages): Start of the match with composition, goals, red cards and analysis of the match by GPT4 at the end.
 
-[Please remember to edit variables in the config.ini file and check comment and look at the paragraphs at the beginning of the code to modify the gpt4 agent and leagues IDs defined in the code!]
+[Please remember to edit variables in the config.ini file and look at the paragraphs at the beginning of the code to modify the gpt4 agent and leagues IDs defined in the code!]
 
 Go to https://dashboard.api-football.com/ to get an football api key and your_team id (TEAM_ID), and season id
 
