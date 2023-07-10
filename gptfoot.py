@@ -2,17 +2,16 @@
 """
 ### INFORMATIONS SUR LE SCRIPT GPTFOOT ###
 # AUTEUR :  Arnaud (https://github.com/Macmachi) 
-# VERSION : v1.1
+# VERSION : v1.2
 # FONCTIONALITES : Bot telegram pour suivre les événements de matchs d'un club dans une compétition (sans trop de messages) : Début du match avec composition, buts, cartons rouges et analyse du match par GPT4 à la fin. 
 # My XMR wallet if you like my telegram bot : 47aRxaose3a6Uoi8aEo6sDPz3wiqfTePt725zDbgocNuBFSBSXmZNSKUda6YVipRMC9r6N8mD99QjFNDvz9wYGmqHUoMHbR
 ### FONCTIONALITES NICE TO HAVE ###
-# Mettre dans un JSON les clés API et données de foot !
-# Ajouter la coupe de suisse ?!
 # Envoyer le classement 30 minutes après le match pour le championnat 
 # Récupérer saison ID 
 ### EXPLOIT CONNUS ###
-*(1 match sur 100) un goal soit annulé et qu'un autre soit marqué dans la même minute = confusion de la logique entre l'annulation du premier but avec le second but marqué
-*(1 match sur 100) Si la correction de temps écoulé pour le premier but est reçue après un autre but est marqué (intervalle de 5min), la logique actuelle considérera le premier but corrigé comme un nouveau but.
+* Vérifie à heure fixe donc si le bot est lancé un jour de match, celui-ci ne sera pas détecté!
+* (1 match sur 100) un goal soit annulé et qu'un autre soit marqué dans la même minute = confusion de la logique entre l'annulation du premier but avec le second but marqué
+* (1 match sur 100) Si la correction de temps écoulé pour le premier but est reçue après un autre but est marqué (intervalle de 5min), la logique actuelle considérera le premier but corrigé comme un nouveau but.
 """
 import asyncio
 import datetime
@@ -31,6 +30,10 @@ config = configparser.ConfigParser()
 # read the content of the config.ini file
 config.read('config.ini')  
 
+# Please replace this information in the code (NOT HERE) with your leagues id competition from api-football.com.
+'''
+    LEAGUE_IDS = [2, 207, 209] 
+'''
 # Please replace this information in the code (NOT HERE) with your language and team name for the AI analysis.
 ''' 
     conversation_history = [
@@ -47,11 +50,7 @@ config.read('config.ini')
 # KEYs from the INI file
 API_KEY = config['KEYS']['OPENAI_API_KEY']
 TOKEN_TELEGRAM = config['KEYS']['TELEGRAM_BOT_TOKEN']
-# The chat ID allowed to update in the json file chat_ids_sfcbot too!!!
-AUTHORIZED_CHAT_ID = config['KEYS']['CHAT_ID']
 TEAM_ID = config['KEYS']['TEAM_ID']
-#Maintenant définie dans la variable is_match_today
-#LEAGUE_ID = config['KEYS']['LEAGUE_ID']
 SEASON_ID = config['KEYS']['SEASON_ID']
 API_FOOTBALL_KEY = config['KEYS']['API_FOOTBALL_KEY']
 
@@ -80,70 +79,31 @@ def initialize_chat_ids_file():
         except IOError as e:
             log_message(f"Erreur lors de la création du fichier chat_ids_sfcbot.json : {e}")
 
-# Fonction pour initialiser le fichier des IDs de chat non autorisés s'il n'existe pas déjà.
-def initialize_unauthorized_chat_ids_file():
-    """
-    Crée un fichier JSON vide pour stocker les ID de chat non autorisés si le fichier n'existe pas déjà.
-    """
-    if not os.path.exists("unauthorized_chat_ids_sfcbot.json"):
-        try:
-            with open("unauthorized_chat_ids_sfcbot.json", "w") as file:
-                json.dump([], file)
-        except IOError as e:
-            log_message(f"Erreur lors de la création du fichier chat_ids_sfcbot.json : {e}")
-
 # Fonction déclenchée lorsqu'un utilisateur envoie la commande /start au bot.
 async def on_start(message: types.Message):
     log_message("on_start(message: types.Message) appelée.")  
     chat_id = message.chat.id
     log_message(f"Fonction on_start() appelée pour le chat {chat_id}")
 
-    if chat_id == AUTHORIZED_CHAT_ID:
-        # Récupérez les ID de chat existants à partir du fichier JSON
-        with open("chat_ids_sfcbot.json", "r") as file:
-            chat_ids = json.load(file)
+    # Récupérez les ID de chat existants à partir du fichier JSON
+    with open("chat_ids_sfcbot.json", "r") as file:
+        chat_ids = json.load(file)
 
-        # Ajoutez l'ID de chat au fichier JSON s'il n'est pas déjà présent
-        if chat_id not in chat_ids:
-            chat_ids.append(chat_id)
+    # Ajoutez l'ID de chat au fichier JSON s'il n'est pas déjà présent
+    if chat_id not in chat_ids:
+        chat_ids.append(chat_id)
 
-            with open("chat_ids_sfcbot.json", "w") as file:
-                json.dump(chat_ids, file)
+        with open("chat_ids_sfcbot.json", "w") as file:
+            json.dump(chat_ids, file)
 
-            await message.reply("Le bot a été démarré et l'ID du chat a été enregistré.")
-            log_message(f"Le bot a été démarré et l'ID du chat {chat_id} a été enregistré.")
-        else:
-            await message.reply("Le bot a déjà été démarré dans ce chat.")
-            log_message(f"Le bot a déjà été démarré dans ce chat {chat_id}.")
-        
+        await message.reply("Le bot a été démarré et l'ID du chat a été enregistré.")
+        log_message(f"Le bot a été démarré et l'ID du chat {chat_id} a été enregistré.")
     else:
-        # Récupérez les ID de chat non autorisés existants à partir du fichier JSON
-        with open("unauthorized_chat_ids_sfcbot.json", "r") as file:
-            unauthorized_chat_ids = json.load(file)
-
-        # Ajoutez l'ID de chat non autorisé au fichier JSON s'il n'est pas déjà présent
-        if chat_id not in unauthorized_chat_ids:
-            unauthorized_chat_ids.append(chat_id)
-
-            with open("unauthorized_chat_ids_sfcbot.json", "w") as file:
-                json.dump(unauthorized_chat_ids, file)
-
-        log_message(f"Vous n'êtes pas autorisé à utiliser ce bot. L'ID du chat a été enregistré pour une éventuelle autorisation ultérieure {chat_id}.")
-        await message.reply("Vous n'êtes pas autorisé à utiliser ce bot. L'ID du chat a été enregistré pour une éventuelle autorisation ultérieure.")
+        await message.reply("Le bot a déjà été démarré dans ce chat.")
+        log_message(f"Le bot a déjà été démarré dans ce chat {chat_id}.")      
         
 # Vérifie périodiquement si un match est prévu et, si c'est le cas, récupère les informations pertinentes et effectue des actions appropriées.
 async def check_match_periodically():
-    # Récupérez les ID de chat enregistrés
-    log_message("Lecture des IDs de chat enregistrés...")
-    with open("chat_ids_sfcbot.json", "r") as file:
-        chat_ids = json.load(file)
-        log_message(f"Chat IDs chargés depuis le fichier chat_ids_sfcbot.json : {chat_ids}")
-
-    # Vérifiez les matchs immédiatement après le démarrage
-    for chat_id in chat_ids:
-        log_message(f"Vérification du chat ID {chat_id}")
-        log_message("Vérification du match en cours...")
-        await check_matches(chat_id)
 
     while True:
         now = datetime.datetime.now()
@@ -155,17 +115,19 @@ async def check_match_periodically():
         seconds_until_target_time = (target_time - now).total_seconds()
         log_message(f"Attente de {seconds_until_target_time} secondes jusqu'à la prochaine vérification (02h01).")
         await asyncio.sleep(seconds_until_target_time)
-
-        for chat_id in chat_ids:
-            await check_matches(chat_id)
         
+        # Vérifiez les matchs 
+        log_message("Vérification du match en cours...")
+        await check_matches()
+    
 # Vérifie si un match est prévu aujourd'hui et effectue les actions appropriées, comme envoyer des messages de début et de fin de match, et vérifier les événements pendant le match.
-async def check_matches(chat_id):
+async def check_matches():
     global sent_events
     log_message("get_team_match_info() appelée.")
-    match_today, match_start_time, fixture_id = await is_match_today() # type: ignore
+    #On ignore la dernière value (current_league_id) qui n'est pas importante ici et déjà déclaré comme une variable globale !
+    match_today, match_start_time, fixture_id, _ = await is_match_today()
     log_message(f"Résultat de is_match_today() dans la fonction check_match_periodically : match_today = {match_today}, match_start_time = {match_start_time}, fixture_id = {fixture_id}")
-    
+
     if match_today:
         log_message(f"un match a été trouvé")
         now = datetime.datetime.now()
@@ -177,18 +139,24 @@ async def check_matches(chat_id):
         # Attendez que le match débute réellement
         match_data = (await wait_for_match_start(fixture_id))[3]
         log_message(f"match_data reçu de wait_for_match_start dans check_matches {match_data}\n")
-        
+
+        # Récupérez les ID de chat enregistrés
+        log_message("Lecture des IDs de chat enregistrés...")
+        with open("chat_ids_sfcbot.json", "r") as file:
+            chat_ids = json.load(file)
+            log_message(f"Chat IDs chargés depuis le fichier chat_ids_sfcbot.json : {chat_ids}")
+
         # Envoyez le message de début de match et commencez à vérifier les événements
         if match_data is not None:
-            log_message(f"Envoie du message de début de match avec send_start_message")
-            await send_start_message(chat_id, match_data)
-            log_message(f"Check des événements du match avec check_events")
-            #Permet de réinialiser les clés au début de chaque match !
-            sent_events.clear()
-            await check_events(chat_id, fixture_id)  
+            for chat_id in chat_ids:
+                log_message(f"Envoie du message de début de match avec send_start_message")
+                await send_start_message(chat_id, match_data)
+                log_message(f"Check des événements du match avec check_events")
+                #Permet de réinialiser les clés au début de chaque match !
+                sent_events.clear()
+                await check_events(chat_id, fixture_id)  
         else:
             log_message(f"Pas de match_data pour l'instant (fonction check_matches), résultat de match_data : {match_data}")
-            
     else:
         log_message(f"Aucun match prévu aujourd'hui")
 
@@ -399,7 +367,7 @@ async def check_events(chat_id, fixture_id):
         try:
             events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
             log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n match_data : (pas log)\n")
-            # Calcul de l'intervalle optimisé (92 est le nombre d'appel max d'appel à l'api pour cette fonction en fonction du temps de match estimé)
+            # Calcul de l'intervalle optimisé (90 est le nombre d'appel max d'appel à l'api pour cette fonction en fonction du temps de match estimé)
             # DEBUG : Pour API payante max 7500 calls par jours
             #total_duree_championnat = 45 + 5 + 45 + 10
             #interval = (total_duree_championnat * 60) / 500
@@ -824,7 +792,6 @@ async def main():
     bot = Bot(token=TOKEN_TELEGRAM)
     dp = Dispatcher(bot)
     initialize_chat_ids_file()
-    initialize_unauthorized_chat_ids_file()  
     dp.register_message_handler(on_start, commands=["start"])
     asyncio.create_task(check_match_periodically())
     await dp.start_polling()
