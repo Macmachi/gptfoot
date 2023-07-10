@@ -3,8 +3,6 @@ Bot telegram to follow the match events of a club in a competition (without too 
 
 [Please remember to edit variables in the config.ini file !]
 
-!!! The Chat id must also be added in the json file chat_ids_sfcbot !!!
-
 Go to https://dashboard.api-football.com/ to get an football api key and your_team id (TEAM_ID), league id and season id
 
 Go to https://platform.openai.com/account/api-keys to get open ai api key
