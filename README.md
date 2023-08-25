@@ -3,7 +3,7 @@
 ## 🌐 Overview
 gptfoot is a bot for Telegram and Discord, meticulously designed to track match events for clubs across multiple leagues, all while minimizing message volume. It utilizes the cutting-edge GPT-4 technology from OpenAI to provide live match commentary. The bot offers a broad range of features, from showcasing team lineups to reporting goals, red cards, and delivering comprehensive match analyses, all backed by the advanced capabilities of GPT-4. It's a game-changer for those looking to stay updated on matches in a seamless and informative way.
 
-✨ Engage with your favorite football team alongside friends and the community! Purchase my bot for your Discord or Telegram!
+✨ Follow your favorite football team by interacting alongside your friends and the community! Purchase my bot for your Discord or Telegram!
 * 🚀 Checking match events with GPT-4 every 30 seconds!
 * 🌐 Multi-language support
 * 🔄 No installation required & Seamless bot updates
