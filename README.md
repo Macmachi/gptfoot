@@ -7,7 +7,7 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * 🚀 Checking match events with GPT-4 every 30 seconds!
 * 🌐 Multi-language support
 * 🔄 No installation required & Seamless bot updates
-* 💸 Price: Only $4/month or $36 for a year! 
+* 💸 Price: Only $4/month or $36/year (25% discount)
 * 📩 Please contact me if interested : rymentz.studio@gmail.com
 
 ## 🛠 Features
