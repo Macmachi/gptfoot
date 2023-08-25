@@ -6,7 +6,7 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 ✨ Engage with your favorite football team alongside friends and the community! Purchase my bot for your Discord or Telegram!
 * 🚀 Checking match events with GPT-4 every 30 seconds!
 * 🌐 Multi-language support
-* 🔄 Seamless bot updates
+* 🔄 No installation required & Seamless bot updates
 * 💸 Price: Only $4/month or $36 for a year! 
 * 📩 Please contact me if interested : rymentz.studio@gmail.com
 
