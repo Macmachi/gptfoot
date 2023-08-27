@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.0.3
+# VERSION : v2.0.4
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -153,12 +153,12 @@ def initialize_chat_ids_file():
     """
     Crée un fichier JSON vide pour stocker les ID de chat si le fichier n'existe pas déjà.
     """
-    if not os.path.exists("chat_ids_sfcbot.json"):
+    if not os.path.exists("telegram_chat_ids.json"):
         try:
-            with open("chat_ids_sfcbot.json", "w") as file:
+            with open("telegram_chat_ids.json", "w") as file:
                 json.dump([], file)
         except IOError as e:
-            log_message(f"Erreur lors de la création du fichier chat_ids_sfcbot.json : {e}")
+            log_message(f"Erreur lors de la création du fichier telegram_chat_ids.json : {e}")
 
 # Fonction déclenchée lorsqu'un utilisateur envoie la commande /start au bot.
 async def on_start(message: types.Message):
@@ -167,14 +167,14 @@ async def on_start(message: types.Message):
     log_message(f"Fonction on_start() appelée pour le chat {chat_id}")
 
     # Récupérez les ID de chat existants à partir du fichier JSON
-    with open("chat_ids_sfcbot.json", "r") as file:
+    with open("telegram_chat_ids.json", "r") as file:
         chat_ids = json.load(file)
 
     # Ajoutez l'ID de chat au fichier JSON s'il n'est pas déjà présent
     if chat_id not in chat_ids:
         chat_ids.append(chat_id)
 
-        with open("chat_ids_sfcbot.json", "w") as file:
+        with open("telegram_chat_ids.json", "w") as file:
             json.dump(chat_ids, file)
 
         await message.reply("Le bot a été démarré et l'ID du chat a été enregistré.")
@@ -793,9 +793,9 @@ async def send_message_to_all_chats(message):
     # Pour Telegram:
     if USE_TELEGRAM:
         log_message("Lecture des IDs de chat enregistrés pour Telegram...")
-        with open("chat_ids_sfcbot.json", "r") as file:
+        with open("telegram_chat_ids.json", "r") as file:
             chat_ids = json.load(file)
-            log_message(f"Chat IDs chargés depuis le fichier chat_ids_sfcbot.json : {chat_ids}")
+            log_message(f"Chat IDs chargés depuis le fichier telegram_chat_ids.json : {chat_ids}")
         
         for chat_id in chat_ids:
             try:
