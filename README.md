@@ -23,9 +23,9 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 
 ## 🌟 Potential future updates
 * Added the option to track player injury events for the followed team
+* Implement a better scoring management for penalty shootouts, as they are not handled the same way as regular goals
 * Improved handling of season ID retrieval (currently requires manual adjustment in config.ini at the beginning of each season)
 * Inclusion of OpenAI API call costs
-* Implement a better scoring management for penalty shootouts, as they are not handled the same way as regular goals
 
 ## ⚠ Known Issues
 * [Free API] Due to API call limitations, 5-minute breaks during extra time are considered as regular half-times, causing the script to pause for 13 minutes
