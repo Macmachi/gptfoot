@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.0.1
+# VERSION : v2.0.2
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -984,7 +984,7 @@ async def call_chatgpt_api(data, language=LANGUAGE):
                 log_message(f"La langue détectée n'est pas le français donc on lance la traduction")
                 translation_prompt = f"Translate the following sentence from french to {language}: {message}"
                 translation_data = {
-                    "model": "gpt-4",
+                    "model": "gpt-3.5-turbo",
                     "messages": [{"role": "user", "content": translation_prompt}],
                     "max_tokens": 2000
                 }
@@ -1030,7 +1030,7 @@ async def call_chatgpt_api_compomatch(match_data):
 async def call_chatgpt_api_goalmatch(player, team, player_statistics, elapsed_time, event, score_string):
     user_message = (f"Le joueur qui a marqué : {player} "
                     f"L'équipe dont il fait parti': {team} "
-                    f"Les statistiques du joueur qui a marqué (si disponible) : {player_statistics} "
+                    f"Les statistiques du joueur pour ce match qui a marqué (si disponible) : {player_statistics} "
                     f"La minute du match quand le goal a été marqué : {elapsed_time} "
                     f"Le score actuel (après le but qui vient d'être marqué, ne le met pas dans ton message mais tu peux t'en servir pour savoir l'importance du goal): {score_string}" 
                     f"Voici les détails de l'événement goal du match en cours {event}, utilise uniquement les informations pertinentes liées au goal marqué à la {elapsed_time} minute.")
@@ -1046,7 +1046,7 @@ async def call_chatgpt_api_goalmatch(player, team, player_statistics, elapsed_ti
 async def call_chatgpt_api_shootout_goal_match(player, team, player_statistics, event):
     user_message = (f"Le joueur qui a marqué le pénalty lors de la séance aux tirs aux buts : {player} "
                     f"L'équipe dont il fait parti': {team} "
-                    f"Les statistiques du joueur qui a marqué (si disponible) : {player_statistics} "
+                    f"Les statistiques du joueur pour ce match qui a marqué (si disponible) : {player_statistics} "
                     f"Voici les détails de l'événement goal du match en cours {event}.")
     system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal lors de cette séance aux tirs au but, tu ne dois pas faire plus de trois phrases courtes en te basant sur les informations que je te donne comme qui est le buteur et ses statistique (si disponible) et qui a fait l'assit (si disponible)."
     data = {
