@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.0.0
+# VERSION : v2.0.1
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -32,27 +32,32 @@ config = configparser.ConfigParser()
 # Lire le contenu du fichier config.ini
 config.read(config_path)
 
-# Variables du fichier INI
+# Récupérer les variables de la section KEYS
 API_KEY = config['KEYS']['OPENAI_API_KEY']
 TOKEN_TELEGRAM = config['KEYS']['TELEGRAM_BOT_TOKEN']
 TEAM_ID = config['KEYS']['TEAM_ID']
+TEAM_NAME = config['KEYS']['TEAM_NAME']
+LEAGUE_IDS_STR = config['KEYS']['LEAGUE_IDS']
 SEASON_ID = config['KEYS']['SEASON_ID']
 API_FOOTBALL_KEY = config['KEYS']['API_FOOTBALL_KEY']
 TOKEN_DISCORD = config['KEYS']['DISCORD_BOT_TOKEN']
+# Récupérer les variables de la section OPTIONS
 USE_TELEGRAM = config['OPTIONS'].getboolean('USE_TELEGRAM', fallback=True) 
 USE_DISCORD = config['OPTIONS'].getboolean('USE_DISCORD', fallback=True)
 IS_PAID_API = config['OPTIONS'].getboolean('IS_PAID_API', fallback=False)
+# Récupérer le fuseau horaire du serveur à partir de la section SERVER
+SERVER_TIMEZONE_STR = config['SERVER'].get('TIMEZONE', 'Europe/Paris')
+# Récupérer la langue à partir de la section LANGUAGES
+LANGUAGE = config['LANGUAGES'].get('LANGUAGE', 'english')
 
+# Convertir la chaîne du fuseau horaire en objet pytz
+server_timezone = pytz.timezone(SERVER_TIMEZONE_STR)
+# Convertir la chaîne de LEAGUE_IDS en une liste d'entiers
+LEAGUE_IDS = [int(id) for id in LEAGUE_IDS_STR.split(',')]
 # Empêche notre variable 'main' de se terminer après avoir créé la tâche pour lancer notre bot Discord.
 is_running = True
-
-paris_tz = pytz.timezone('Europe/Paris')
+# Défini notre variable pour stocker les événements envoyé pendant le match
 sent_events = set()
-
-# Nom d'équipe utilisé dans les prompts de l'IA (Par défaut = "Servette FC")
-team_name_prompt = "Servette FC"
-# Identifiants des ligues de l'équipe ci-dessus à modifier optionnellement aussi pour les différents intervalles pour la version gratuit de l'api (Par défaut : [3, 207, 209]) 
-LEAGUE_IDS = [3, 207, 209]
 
 # Permet de générer une exception si on dépasse le nombre de call api défini dans une de ces fonctions
 class RateLimitExceededError(Exception):
@@ -264,7 +269,7 @@ async def wait_for_match_start(fixture_id):
         log_message("Le match n'a pas encore commencé, en attente...")
 
         # Si api gratuite utilisée Attendre 120 secondes avant de vérifier à nouveau (comme on envoie plus le message de début on peut limiter le nombre d'appels à l'api!)
-        sleep_time = 30 if IS_PAID_API else 120
+        sleep_time = 15 if IS_PAID_API else 120
         await asyncio.sleep(sleep_time)    
 
     # Retourner None si le match est reporté ou annulé
@@ -313,7 +318,7 @@ async def get_check_match_status(fixture_id):
         fixture = data['response'][0]
         #log_message(f"fixture depuis get_check_match_status {fixture}\n")
         match_status = fixture['fixture']['status']['short']
-        match_date = datetime.datetime.strptime(fixture['fixture']['date'], '%Y-%m-%dT%H:%M:%S%z').astimezone(paris_tz)
+        match_date = datetime.datetime.strptime(fixture['fixture']['date'], '%Y-%m-%dT%H:%M:%S%z').astimezone(server_timezone)
         elapsed_time = fixture['fixture']['status']['elapsed']
         # Récupérez match_data à partir de la variable fixture
         match_data = {
@@ -398,14 +403,14 @@ async def is_match_today():
     for response in responses:
         if response['results'] > 0:
             match_date = datetime.datetime.strptime(response['response'][0]['fixture']['date'], '%Y-%m-%dT%H:%M:%S%z')
-            match_date = match_date.astimezone(paris_tz)  # Convert to Paris/Berlin timezone
+            match_date = match_date.astimezone(server_timezone)  # Convert to Paris/Berlin timezone
             match_date = match_date.date()
             today = datetime.date.today()
 
             if match_date == today:
                 match_today = True
                 match_start_datetime = datetime.datetime.strptime(response['response'][0]['fixture']['date'], '%Y-%m-%dT%H:%M:%S%z')
-                match_start_datetime = match_start_datetime.astimezone(paris_tz)  # Convert to Paris/Berlin timezone
+                match_start_datetime = match_start_datetime.astimezone(server_timezone)  # Convert to Paris/Berlin timezone
                 match_start_time = match_start_datetime.time()        
                 fixture_id = response['response'][0]['fixture']['id']
                 break
@@ -482,7 +487,7 @@ async def check_events(fixture_id):
             log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n score actuel : {new_score['home']} - {new_score['away']} \n match_data : (pas log)\n")
             # Calcul de l'intervalle optimisé selon api payante ou non 
             if IS_PAID_API:
-                interval = 30
+                interval = 15
 
             elif not IS_PAID_API:
                 # Pour API gratuite
@@ -498,7 +503,7 @@ async def check_events(fixture_id):
                     total_duree_championnat = 5 + 45 + 10 + 45 + 10 + 30
                     interval = (total_duree_championnat * 60) / 90
                 else:
-                    total_duree_championnat = 5 + 45 + 10 + 45 + 10
+                    total_duree_championnat = 5 + 45 + 10 + 45 + 10 + 30
                     interval = (total_duree_championnat * 60) / 90
 
             if match_status == 'HT':
@@ -522,7 +527,7 @@ async def check_events(fixture_id):
                             break
 
                         # Attendre un certain temps avant de vérifier à nouveau le statut du match
-                        await asyncio.sleep(30)
+                        await asyncio.sleep(15)
 
                 # Pause de 13 minutes (780 secondes) si le statut du match est 'HT' (mi-temps) afin de gagner des calls API attention le fait aussi si prolongation donc il y aura un léger décalage comme une HT de prolongation est de 5 minutes !  
                 if not IS_PAID_API:
@@ -777,6 +782,7 @@ async def check_events(fixture_id):
 
 # Cette fonction reçoit un message, puis envoie le message à chaque chat_id
 async def send_message_to_all_chats(message):
+    log_message("send_message_to_all_chats() appelée.")
     log_message(f"Contenu du message envoyé : {message}")
 
     # Pour Telegram:
@@ -960,7 +966,7 @@ async def send_end_message(home_team, away_team, home_score, away_score, match_s
 # DEBUT DE CODE POUR CONFIGURATION IA
 
 # Fonction générique pour appeler l'API ChatGPT
-async def call_chatgpt_api(data):
+async def call_chatgpt_api(data, language=LANGUAGE):
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {API_KEY}"
@@ -968,11 +974,28 @@ async def call_chatgpt_api(data):
     
     async with httpx.AsyncClient() as client:
         try:
+            # Appel initial à GPT-4 pour obtenir le message
             response_json = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=200.0)
             response_json.raise_for_status()
             message = response_json.json()["choices"][0]["message"]["content"].strip()
+            
+            # Traduction du message si la langue n'est pas le français
+            if language.lower() != "french":
+                log_message(f"La langue détectée n'est pas le français donc on lance la traduction")
+                translation_prompt = f"Translate the following sentence from french to {language}: {message}"
+                translation_data = {
+                    "model": "gpt-4",
+                    "messages": [{"role": "user", "content": translation_prompt}],
+                    "max_tokens": 2000
+                }
+                translation_response = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=translation_data, timeout=200.0)
+                translation_response.raise_for_status()
+                message = translation_response.json()["choices"][0]["message"]["content"].strip()
+                return message
+            
             log_message(f"\n Succès de la récupération de la réponse GPT-4 \n")
             return message
+
         except httpx.HTTPError as e:
             log_message(f"Erreur lors de l'appel à l'API ChatGPT : {e}")
             return f"🤖 : Désolé une erreur lors de la communication avec l'API ChatGPT est survenue."
@@ -982,9 +1005,9 @@ async def call_chatgpt_api(data):
 
 # Analyse pour l'heure de début du match
 async def call_chatgpt_api_matchtoday(match_start_time):
-    user_message = (f"Les informations de quand commence le match du {team_name_prompt} aujourd'hui : {match_start_time}"
+    user_message = (f"Les informations de quand commence le match du {TEAM_NAME} aujourd'hui : {match_start_time}"
                     f"L'heure actuelle aujourd'hui : {datetime.datetime.now()}")
-    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, invente moi une phrase enthousiasmante et embellie avec un ou deux émojis pour annoncer l'heure de début du match du {team_name_prompt} aujourd'hui."
+    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, invente moi une phrase enthousiasmante et embellie avec un ou deux émojis pour annoncer l'heure de début du match du {TEAM_NAME} aujourd'hui."
     data = {
         "model": "gpt-4",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
@@ -1070,7 +1093,7 @@ async def call_chatgpt_api_endmatch(match_statistics, events):
             if 'type' in home_stat and 'value' in home_stat and 'type' in away_stat and 'value' in away_stat:
                 user_message += f"{home_stat['type']}: {home_stat['value']} - {away_stat['value']}\n"
 
-    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. En utilisant les événements et statistiques de match fournis, donne une analyse détaillée de la prestation du {team_name_prompt} pendant le match."
+    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. En utilisant les événements et statistiques de match fournis, donne une analyse détaillée de la prestation du {TEAM_NAME} pendant le match."
     data = {
         "model": "gpt-4",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
