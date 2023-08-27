@@ -19,9 +19,9 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Can be used with either the free or paid API from api-football (available option in the config.ini file)
 * The frequency of messages is limited to ensure a pleasant experience for Telegram users
 * Can be used with the free version of the api-football (up to 100 calls per day)
+* Support for dozens of languages 
 
 ## 🌟 Potential future updates
-* Define team name and league ids in config.ini
 * Added the option to track player injury events for the followed team
 * Improved handling of season ID retrieval (currently requires manual adjustment in config.ini at the beginning of each season)
 * Inclusion of OpenAI API call costs
