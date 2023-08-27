@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.0.2
+# VERSION : v2.0.3
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -665,10 +665,15 @@ async def check_events(fixture_id):
                                     log_message(f"new_score != current_score")
                                     # Ajout de la logique pour vérifier une augmentation significative du score entre deux vérifications (ex : on passe de 0-2 à 0-4) afin d'éviter d'envoyer le score à ce moment mais à la sortie de la boucle dans un nouveau message ! 
                                     significant_increase_in_score = False
+                                    # Si l'équipe à domicile a marqué plus d'un but
                                     if team['id'] == match_data['teams']['home']['id'] and new_score['home'] - current_score['home'] > 1:
                                         significant_increase_in_score = True
+                                    # Si l'équipe à l'extérieur a marqué plus d'un but    
                                     elif team['id'] == match_data['teams']['away']['id'] and new_score['away'] - current_score['away'] > 1:
                                         significant_increase_in_score = True
+                                    # Si chaque équipe a marqué au moins un but par rapport au score précédent
+                                    elif (new_score['home'] - current_score['home'] >= 1) and (new_score['away'] - current_score['away'] >= 1):
+                                        significant_increase_in_score = True    
                             
                                     # Si augmentation significative, envoyez un message spécial
                                     if significant_increase_in_score:
