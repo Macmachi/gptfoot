@@ -22,7 +22,7 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Support for dozens of languages 
 
 ## 🌟 Potential future updates
-* [Important]Add more information about today's match, such as the teams taking part, the league involved, the round, etc.
+* [Important]Add more information about today's match, such as the teams taking part, the league involved, the round, venue
 * [Normal] Add the name of the team most likely to win the match at the start of the match via Predictions (for PAID API)
 * [Normal] Add the name of the team most likely to win the match at the start of the match via Predictions (for PAID API)
 * [Normal] Add the standings 1 hour after the end of the match (for PAID API)
