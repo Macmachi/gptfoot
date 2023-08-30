@@ -34,6 +34,7 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * [Free API] In very rare instances, it's possible that a disallowed goal might go undetected if two scored goals are identified, including one that was disallowed, within the same interval between two checks. However, the score should still be displayed accurately in such cases
 * [Paid API] The script does not update the score with penalty shots as this is handled differently
 * [Paid API] Do not consider the goals that would be invalidated during the penalty shootout session
+* In very rare instances, it is possible that if a goal is scored and then corrected, and in the meantime goals are scored, the score sent back may have been updated during the correction (message of a new goal). However, the details of the match and the information linked to the goal should make it possible to identify that it is a correction of the goal and not a new goal.
 * The bot cannot provide ongoing match information if launched on a server during the match; only upcoming matches are considered
 
 ## Licence:
