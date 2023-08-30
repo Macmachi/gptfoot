@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.0.5
+# VERSION : v2.0.6
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -233,14 +233,28 @@ async def check_matches():
             match_start_datetime = now.replace(hour=match_start_time.hour, minute=match_start_time.minute, second=0, microsecond=0)
             seconds_until_match_start = (match_start_datetime - now).total_seconds()
             log_message(f"Il reste {seconds_until_match_start} secondes avant le début du match.")
-            
+            # Calculer le temps pour envoyer le message 10 minutes avant le début du match
+            seconds_until_message = max(0, seconds_until_match_start - 900)  # 900 secondes = 15 minutes
+            # On envoie le message pour annoncer qu'il y a un match aujourd'hui
             await send_match_today_message(match_start_time, fixture_id, current_league_id, teams, league, round_info, venue, city) 
-            # On vérifie pas ici si le match a déjà commencé car la structure du code fait en sorte qu'on puisse pas lancer le script pendant un match qui a commencé pour récuprer ses infos il faut attendre les matchs suivants. 
-            await asyncio.sleep(seconds_until_match_start)
-            log_message(f"Fin de l'attente jusqu'à l'heure prévu de début de match") 
-            # Attendez que le match débute réellement
-            match_data = (await wait_for_match_start(fixture_id))[3]
-            log_message(f"match_data reçu de wait_for_match_start dans check_matches {match_data}\n")
+           
+            # Attendre jusqu'à l'heure d'envoi du message 10 minutes avant le début du match
+            await asyncio.sleep(seconds_until_message)
+            # Envoyer le message si IS_PAID_API est vrai
+            if IS_PAID_API:
+                # Attendez que le match débute réellement qui est vérifié dans wait_for_match_start
+                match_data = (await wait_for_match_start(fixture_id))[3]
+                log_message(f"match_data reçu de wait_for_match_start dans check_matches {match_data}\n")
+            
+            else:
+                # Attendre jusqu'au début du match pour envoyer la compo et voir le match a réellement commencé si on utilise l'api free pour limiter les calls à l'api
+                # On vérifie pas ici si le match a déjà commencé car la structure du code fait en sorte qu'on puisse pas lancer le script pendant un match qui a commencé pour récuprer ses infos il faut attendre les matchs suivants. 
+                remaining_seconds = seconds_until_match_start - seconds_until_message
+                await asyncio.sleep(remaining_seconds)
+                log_message(f"Fin de l'attente jusqu'à l'heure prévu de début de match") 
+                # Attendez que le match débute réellement
+                match_data = (await wait_for_match_start(fixture_id))[3]
+                log_message(f"match_data reçu de wait_for_match_start dans check_matches {match_data}\n")
         
             # Envoyez le message de début de match et commencez à vérifier les événements
             if match_data is not None:
@@ -306,7 +320,7 @@ async def wait_for_match_start(fixture_id):
 
     while True:
         match_status, match_date, elapsed_time, match_data = await get_check_match_status(fixture_id)
-        log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time} et match_data (pas log)\n")
+        #log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time} et match_data (pas log)\n")
         #log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time}, match_data: {match_data}")  
 
         if match_status and elapsed_time is not None:
@@ -318,7 +332,7 @@ async def wait_for_match_start(fixture_id):
         log_message("Le match n'a pas encore commencé, en attente...")
 
         # Si api gratuite utilisée Attendre 120 secondes avant de vérifier à nouveau (comme on envoie plus le message de début on peut limiter le nombre d'appels à l'api!)
-        sleep_time = 15 if IS_PAID_API else 120
+        sleep_time = 30 if IS_PAID_API else 120 # On met 30 secondes et pas 15 car cela évite trop d'appeler la fonction trop fréquemment sachant que la composition est envoyé 15 minutes avant
         await asyncio.sleep(sleep_time)    
 
     # Retourner None si le match est reporté ou annulé
@@ -556,7 +570,7 @@ async def check_events(fixture_id):
             else:
                 log_message(f"Pas de match_data disponible (none)\n")
 
-            log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n score actuel : {new_score['home']} - {new_score['away']} \n match_data : (pas log)\n")
+            #log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n score actuel : {new_score['home']} - {new_score['away']} \n match_data : (pas log)\n")
             # Calcul de l'intervalle optimisé selon api payante ou non 
             if IS_PAID_API:
                 interval = 15
@@ -701,6 +715,8 @@ async def check_events(fixture_id):
                     log_message(f"type == Goal")   
                     log_message(f"Données de score récupéré dans match_data pour la variable new_score : {new_score}")
                     log_message(f"Previous score : {previous_score}")
+
+                    log_message(f"Contenu de l'event de type goal :\n {event}\n\n")
                 
                     # On vérifie qu'il n'y pas eu de pénalté manqué 
                     if event['detail'] != 'Missed Penalty':
@@ -716,11 +732,11 @@ async def check_events(fixture_id):
                                 #log_message(f"for player_stats : {player_stats}\n")
                                 if 'player' in player_stats and player_stats['player']['id'] == player_id:
                                     player_statistics = player_stats['statistics']
-                                    log_message(f"player_statistics : {player_statistics}\n")
+                                    #log_message(f"player_statistics : {player_statistics}\n")
                                     break
                             if player_statistics:
                                 break
-                        log_message(f"player value : {player}")
+                        #log_message(f"player value : {player}")
                         # Véfirier également que l'ID et le nom du joueur ne sont pas None. 
                         if player is not None and player['id'] is not None and player['name'] is not None:
                             log_message(f"player value is not none")
@@ -728,11 +744,17 @@ async def check_events(fixture_id):
                             # Attention des événements de la fin de la première mi-temps non envoyés mais pris en compte par le script comme une correction pourrait être envoyé au début de la deuxième mi-temps si un événement se passe rapidement à la reprise surtout avec l'api payante.
                             current_elapsed_time = elapsed_time
                             goal_elapsed_time = event['time']['elapsed']
-                            log_message(f"if {goal_elapsed_time} >= {current_elapsed_time} - 10")
+                            # Avec l'api payante comme on rafraichit plus souvent aussi on peut légèrement réduire l'intervall de vérification maximum afin de réduire les risque que les corrections de goal soient envoyées
+                            if IS_PAID_API:
+                                allowed_difference = -7
+                            else:
+                                allowed_difference = -10
+                            log_message(f"if {goal_elapsed_time} >= {current_elapsed_time} + {allowed_difference}")
                             # Permet d'éviter qu'on rentre dans une modification d'un goal marqué trop tard ce qui pourrait apporter de la confusion comme il serait considéré comme un nouveau but et envoyé longtemps après
-                            if goal_elapsed_time is not None and current_elapsed_time is not None and goal_elapsed_time >= current_elapsed_time - 10:
-
+                            if goal_elapsed_time is not None and current_elapsed_time is not None and goal_elapsed_time >= current_elapsed_time + allowed_difference:
+    
                                 log_message(f"L'événement de goal a été détecté dans un interval de 10 minutes par rapport au temps actuel du match")    
+                                # On pourrait envoyer l'événement goal avant cette condition pour avoir un bot plus réactif MAIS les données envoyées soient corrigées ou incomplètes (joueur qui a marqué, ses statistiques, détail du goal ou annulation du goal)  
                                 if new_score != current_score:
                                     log_message(f"new_score != current_score")
                                     # Ajout de la logique pour vérifier une augmentation significative du score entre deux vérifications (ex : on passe de 0-2 à 0-4) afin d'éviter d'envoyer le score à ce moment mais à la sortie de la boucle dans un nouveau message ! 
@@ -773,14 +795,15 @@ async def check_events(fixture_id):
                                         score_updated = False  
                                     else:
                                         log_message(f"Le score n'a pas été modifié car l'API ne l'a pas mis à jour soit car retard, soit car modification du temps de l'événement d'un goal")
-                                        log_message(f"\n[EN ATTENTE] informations non envoyées : Goal : {player}, {team}, {player_statistics if player_statistics else []}, {event['time']['elapsed']},{match_data['teams']['home']['name']} {match_data['goals']['home']} - {match_data['goals']['away']} {match_data['teams']['away']['name']}")
+                                        log_message(f"[EN ATTENTE] informations non envoyées :\n Goal : {player}, {team}, {player_statistics if player_statistics else []}, {event['time']['elapsed']},{match_data['teams']['home']['name']} {match_data['goals']['home']} - {match_data['goals']['away']} {match_data['teams']['away']['name']}")
 
                 elif event['type'] == "Card" and event['detail'] == "Red Card":
                     log_message(f"Carton rouge détecté")
                     player = event['player']
                     team = event['team']
+
+                    log_message(f"Contenu de l'event de type carton rouge :\n {event}\n\n")
                     
-                    log_message(f"Nom du joueur ayant un carton rouge : {player}")
                     # Vérifiez si le joueur n'est pas None et si son nom est présent
                     if player is not None and 'name' in player:
                         # Vérifiez si l'événement de carton rouge est dans les 10 dernières minutes
@@ -872,7 +895,7 @@ async def check_events(fixture_id):
 
 # Cette fonction récupère le classement de l'équipe après le match  
 async def get_team_standings():
-    log_message("get_team_standings() appelée.")
+    await log_message("get_team_standings() appelée.")  # Assurez-vous que log_message est async
     url = f"https://v3.football.api-sports.io/standings?league={current_league_id}&season={SEASON_ID}&team={TEAM_ID}"
     headers = {
         "x-apisports-key": API_FOOTBALL_KEY
@@ -881,24 +904,32 @@ async def get_team_standings():
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
                 data = await resp.json()
+                # Log des données reçues
+                await log_message(f"Données récupérées : {data}")  
                 
-                # Vérification de l'existence des clés et indices
                 if 'response' in data and len(data['response']) > 0:
+                    await log_message("La clé 'response' existe et contient des données.")
                     league_info = data['response'][0]
+                    
                     if 'standings' in league_info and len(league_info['standings']) > 0:
+                        await log_message("La clé 'standings' existe et contient des données.")
                         standings = league_info['standings'][0][0]
                         rank = standings.get("rank")
                         points = standings.get("points")
                         return rank, points
-                
-                await log_message("Les clés ou indices nécessaires n'existent pas dans la réponse.")
-                return None, None
                     
+                    else:
+                        await log_message("La clé 'standings' n'existe pas ou ne contient pas de données.")
+                
+                else:
+                    await log_message("La clé 'response' n'existe pas ou ne contient pas de données.")
+                
+                return None, None
+                
     except Exception as e:
-        # Assurez-vous que log_message est une coroutine asynchrone si vous utilisez 'await'
         await log_message(f"Erreur dans get_team_standings: {e}")
         return None, None
-
+    
 # Cette fonction reçoit un message, puis envoie le message à chaque chat_id
 async def send_message_to_all_chats(message):
     log_message("send_message_to_all_chats() appelée.")
@@ -983,10 +1014,10 @@ async def send_start_message():
 # Envoie un message aux utilisateurs pour informer d'un but marqué lors du match en cours, y compris les informations sur le joueur, l'équipe et les statistiques.
 async def send_goal_message(player, team, player_statistics, elapsed_time, match_data, event):
     log_message("send_goal_message() appelée.")
-    log_message(f"Player: {player}")
-    log_message(f"Team: {team}")
-    log_message(f"Player statistics: {player_statistics}")
-    log_message(f"Player statistics: {elapsed_time}")
+    #log_message(f"Player: {player}")
+    #log_message(f"Team: {team}")
+    #log_message(f"Player statistics: {player_statistics}")
+    log_message(f"Minute du match pour le goal : {elapsed_time}")
     home_score = match_data['goals']['home']
     away_score = match_data['goals']['away']
     # Utilisez team['name'] pour obtenir uniquement le nom de l'équipe
@@ -1001,10 +1032,10 @@ async def send_goal_message(player, team, player_statistics, elapsed_time, match
 # Envoie un message aux utilisateurs pour informer d'un but marqué lors du match en cours SANS LE SCORE !, y compris les informations sur le joueur, l'équipe et les statistiques.
 async def send_goal_message_significant_increase_in_score(player, team, player_statistics, elapsed_time, match_data, event):
     log_message("send_goal_message_significant_increase_in_score() appelée.")
-    log_message(f"Player: {player}")
-    log_message(f"Team: {team}")
-    log_message(f"Player statistics: {player_statistics}")
-    log_message(f"Player statistics: {elapsed_time}")
+    #log_message(f"Player: {player}")
+    #log_message(f"Team: {team}")
+    #log_message(f"Player statistics: {player_statistics}")
+    log_message(f"Minute du match pour le goal : {elapsed_time}")
     home_score = match_data['goals']['home']
     away_score = match_data['goals']['away']
     # Utilisez team['name'] pour obtenir uniquement le nom de l'équipe
@@ -1019,9 +1050,9 @@ async def send_goal_message_significant_increase_in_score(player, team, player_s
 # Envoie un message aux utilisateurs pour informer d'un but marqué lors de la séance au tir aux but
 async def send_shootout_goal_message(player, team, player_statistics, event):
     log_message("send_shootout_goal_message() appelée.")
-    log_message(f"Player: {player}")
-    log_message(f"Team: {team}")
-    log_message(f"Player statistics: {player_statistics}")
+    #log_message(f"Player: {player}")
+    #log_message(f"Team: {team}")
+    #log_message(f"Player statistics: {player_statistics}")
     # Utilisez team['name'] pour obtenir uniquement le nom de l'équipe
     message = f"⚽️ Pénalty réussi' - {team['name']}\n\n"
     # Appeler l'API ChatGPT  
@@ -1147,7 +1178,7 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
 
 # Analyse de début de match avec des smileys
 async def call_chatgpt_api_compomatch(match_data, predictions=None):
-    user_message = f"Voici les informations du match qui va commencer d'ici quelques secondes : {match_data}"
+    user_message = f"Voici les informations du match qui va commencer d'ici quelques minutes : {match_data}"
     if predictions:
         user_message += f"Prédictions de l'issue du match :  {predictions['winner']['name']} (Comment: {predictions['winner']['comment']})"
     system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. Fournis-moi une analyse concise des compositions avec des émojis pour rendre la présentation attrayante et en commentant les formations de début de match et les prédictions."
