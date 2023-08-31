@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.0.6
+# VERSION : v2.0.7
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -314,7 +314,8 @@ async def wait_for_match_start(fixture_id):
 
     # Permet d'envoyer la compo à l'heure du début du match prévue avant que le match commence réellement ! Attention coûte un appel API en plus !
     match_status, match_date, elapsed_time, match_data = await get_check_match_status(fixture_id)
-    log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time} et match_data (pas log)\n")
+    # Note : On peut potentiellement vérifier ici (actuellement pas le cas) si la compo renvoyée par get_check_match_status et pas none et on pourrait retenter 5 minutes plus tard en mettant le script sur pause uniquement si paid api ?!
+    log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time} et \n [DEBUG] match data :\n {match_data}\n\n")
     log_message(f"Envoie du message de compo de match avec send_compo_message")
     await send_compo_message(match_data, predictions)
 
@@ -421,7 +422,7 @@ async def get_check_match_status(fixture_id):
                 }
             }
 
-        log_message(f"Statut et données de match récupérés depuis get_check_match_status : {match_status}, \n Date du match : {match_date}, \n Temps écoulé : {elapsed_time}, \n match data : {match_data} \n")
+        log_message(f"Statut et données de match récupérés depuis get_check_match_status : {match_status}, \n Date du match : {match_date}, \n Temps écoulé : {elapsed_time}, \n match data : (no log) \n")
         return match_status, match_date, elapsed_time, match_data
 
     except aiohttp.ClientError as e:
@@ -806,12 +807,16 @@ async def check_events(fixture_id):
                     
                     # Vérifiez si le joueur n'est pas None et si son nom est présent
                     if player is not None and 'name' in player:
-                        # Vérifiez si l'événement de carton rouge est dans les 10 dernières minutes
+                        # Vérifiez si l'événement de carton rouge est dans les dernières minutes
                         current_elapsed_time = elapsed_time
                         red_card_elapsed_time = event['time']['elapsed']
-                        log_message(f"if {red_card_elapsed_time} >= {current_elapsed_time} - 10")
+                        if IS_PAID_API:
+                            allowed_difference = -7
+                        else:
+                            allowed_difference = -10
+                        log_message(f"if {red_card_elapsed_time} >= {current_elapsed_time} + {allowed_difference}")
 
-                        if red_card_elapsed_time is not None and current_elapsed_time is not None and red_card_elapsed_time >= current_elapsed_time - 10:
+                        if red_card_elapsed_time is not None and current_elapsed_time is not None and red_card_elapsed_time >= current_elapsed_time + allowed_difference:
                             await send_red_card_message(player, team, event['time']['elapsed'], event)
                             log_message(f"event_key enregistrée : {event_key}")
                             sent_events.add(event_key)
@@ -870,18 +875,13 @@ async def check_events(fixture_id):
                 log_message(f"Envoi des variables à send_end_message avec chat_ids: home_team: {home_team}, away_team: {away_team}, home_score: {home_score}, away_score: {away_score}, match_statistics: {match_statistics}, events: {events}\n")
                 await send_end_message(home_team, away_team, home_score, away_score, match_statistics, events)
                 if IS_PAID_API:
-                    log_message("Attente jusqu'à la prochaine heure avant l'envoie du classement")
-                    now = datetime.datetime.now()  # Notez que j'ai ajouté datetime. devant datetime.now() pour que ça soit cohérent avec le reste de votre code
-                    next_hour = datetime.datetime(now.year, now.month, now.day, now.hour + 1, 0, 0)
-
-                    # Calculer le temps d'attente en secondes
-                    wait_time = (next_hour.hour * 3600 + next_hour.minute * 60 + next_hour.second) - (now.hour * 3600 + now.minute * 60 + now.second)
-
-                    print(f"Attente de {wait_time} secondes jusqu'à la prochaine heure.")
-                    await asyncio.sleep(wait_time)
+                    log_message("Attente de 30 minutes avant d'envoyer le classement")
+                    await asyncio.sleep(1800)
                     rank, points = await get_team_standings()
                     if rank is not None and points is not None:
                         await send_standings_after_end(rank, points)
+                    else: 
+                        print(f"L'envoie du classement n'a pas eu lieu car get_team_standings() renvoie none")
                 break
 
         # Si le nombre d'appels à l'API restant est dépassé, on lève une exception et on sort de la boucle !
@@ -895,7 +895,7 @@ async def check_events(fixture_id):
 
 # Cette fonction récupère le classement de l'équipe après le match  
 async def get_team_standings():
-    await log_message("get_team_standings() appelée.")  # Assurez-vous que log_message est async
+    log_message("get_team_standings() appelée.")  
     url = f"https://v3.football.api-sports.io/standings?league={current_league_id}&season={SEASON_ID}&team={TEAM_ID}"
     headers = {
         "x-apisports-key": API_FOOTBALL_KEY
@@ -905,29 +905,29 @@ async def get_team_standings():
             async with session.get(url, headers=headers) as resp:
                 data = await resp.json()
                 # Log des données reçues
-                await log_message(f"Données récupérées : {data}")  
+                log_message(f"Données récupérées : {data}")  
                 
                 if 'response' in data and len(data['response']) > 0:
-                    await log_message("La clé 'response' existe et contient des données.")
+                    log_message("La clé 'response' existe et contient des données.")
                     league_info = data['response'][0]
                     
                     if 'standings' in league_info and len(league_info['standings']) > 0:
-                        await log_message("La clé 'standings' existe et contient des données.")
+                        log_message("La clé 'standings' existe et contient des données.")
                         standings = league_info['standings'][0][0]
                         rank = standings.get("rank")
                         points = standings.get("points")
                         return rank, points
                     
                     else:
-                        await log_message("La clé 'standings' n'existe pas ou ne contient pas de données.")
+                        log_message("La clé 'standings' n'existe pas ou ne contient pas de données.")
                 
                 else:
-                    await log_message("La clé 'response' n'existe pas ou ne contient pas de données.")
+                    log_message("La clé 'response' n'existe pas ou ne contient pas de données.")
                 
                 return None, None
                 
     except Exception as e:
-        await log_message(f"Erreur dans get_team_standings: {e}")
+        log_message(f"Erreur dans get_team_standings: {e}")
         return None, None
     
 # Cette fonction reçoit un message, puis envoie le message à chaque chat_id
