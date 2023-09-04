@@ -21,6 +21,9 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Can be used with the free version of the api-football (up to 100 calls per day)
 * Support for dozens of languages 
 
+## 🛠 Demo 
+[![Watch the video (test in french)] (https://www.youtube.com/shorts/XLvecHDjJGk?feature=share)
+
 ## 🌟 Potential future updates
 * [Low priority] Make the bot more flexible by adding more events such as yellow cards and player changes, with the option of enabling or disabling events in config.ini. The idea behind the bot was to send only essential messages, so this is not a high priority.
 * [Low priority] Implement a better scoring management for penalty shootouts, as they are not handled the same way as regular goals
