@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.0.7
+# VERSION : v2.0.8
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -747,7 +747,7 @@ async def check_events(fixture_id):
                             goal_elapsed_time = event['time']['elapsed']
                             # Avec l'api payante comme on rafraichit plus souvent aussi on peut légèrement réduire l'intervall de vérification maximum afin de réduire les risque que les corrections de goal soient envoyées
                             if IS_PAID_API:
-                                allowed_difference = -7
+                                allowed_difference = -10
                             else:
                                 allowed_difference = -10
                             log_message(f"if {goal_elapsed_time} >= {current_elapsed_time} + {allowed_difference}")
@@ -797,6 +797,10 @@ async def check_events(fixture_id):
                                     else:
                                         log_message(f"Le score n'a pas été modifié car l'API ne l'a pas mis à jour soit car retard, soit car modification du temps de l'événement d'un goal")
                                         log_message(f"[EN ATTENTE] informations non envoyées :\n Goal : {player}, {team}, {player_statistics if player_statistics else []}, {event['time']['elapsed']},{match_data['teams']['home']['name']} {match_data['goals']['home']} - {match_data['goals']['away']} {match_data['teams']['away']['name']}")
+                            # Evite de bloquer les prochains goals si un goal est trop tardivement validé pour être envoyé!
+                            else:
+                                log_message(f"[ATTENTION] L'event goal a été enregistré mais n'a pas été envoyé car le temps d'intervalle entre le temps de détection du but lorsqu'il a été marqué et la vérification de l'envoie de celui-ci a été trop long")
+                                sent_events.add(event_key)
 
                 elif event['type'] == "Card" and event['detail'] == "Red Card":
                     log_message(f"Carton rouge détecté")
@@ -811,7 +815,7 @@ async def check_events(fixture_id):
                         current_elapsed_time = elapsed_time
                         red_card_elapsed_time = event['time']['elapsed']
                         if IS_PAID_API:
-                            allowed_difference = -7
+                            allowed_difference = -10
                         else:
                             allowed_difference = -10
                         log_message(f"if {red_card_elapsed_time} >= {current_elapsed_time} + {allowed_difference}")
