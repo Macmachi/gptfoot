@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.0.9
+# VERSION : v2.1.0
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -836,6 +836,7 @@ async def check_events(fixture_id):
             
             #Fin de la boucle for event in events:
             if score_updated:
+                log_message(f"score_updated is true")
                 # Permet d'envoyer le score actualisé si plusieurs goal ont été marqué entre deux vérifications et qui eux seront envoyé sans le score !
                 if significant_increase_in_score:
                     await updated_score(match_data)
@@ -850,6 +851,7 @@ async def check_events(fixture_id):
                     log_message(f"previous_score mis à jour avec current_score.copy() pas encore mis à jour avec new_score : {previous_score}")
                     current_score = new_score.copy()
                     log_message(f"current_score mise à jour avec new_score.copy() : {current_score}")
+                    score_updated = False
 
             # Vérifier si un goal a été annulé
             if current_score['home'] < previous_score['home'] or current_score['away'] < previous_score['away']:
@@ -962,6 +964,8 @@ async def send_message_to_all_chats(message):
                 log_message(f"Erreur lors de l'envoi du message à Telegram (ClientConnectorError) : {e}")
             except NetworkError as e:
                 log_message(f"Erreur lors de l'envoi du message à Telegram (NetworkError) : {e}")
+            except exceptions.TelegramAPIError as e:
+                log_message(f"Erreur lors de l'envoi du message à Telegram TelegramAPIError : {e}")    
             except Exception as e:
                 log_message(f"Erreur inattendue lors de l'envoi du message à Telegram : {e}")
 
