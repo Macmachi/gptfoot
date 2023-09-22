@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.1.0
+# VERSION : v2.1.1
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -91,7 +91,11 @@ signals_to_handle = [sig for sig in signals_to_handle if sig is not None]
 
 # Gestion des signaux pour détecter la fermeture inattendue.
 for sig in signals_to_handle:
-    signal.signal(sig, lambda signal, frame: log_exit(False))
+    #Evite de marqué que le script se ferme alors que c'est pas le cas avec nohup !
+    if sig == signal.SIGINT:
+        signal.signal(sig, signal.SIG_IGN)
+    else:
+        signal.signal(sig, lambda signal, frame: log_exit(False))
 
 ### FIN DE GESTION DE LA FERMETURE DU SCRIPT
 ### DEBUT DE GESTION DU BOT DISCORD
@@ -886,13 +890,14 @@ async def check_events(fixture_id):
                 await send_end_message(home_team, away_team, home_score, away_score, match_statistics, events)
                 if IS_PAID_API:
                     log_message("Attente de 30 minutes avant d'envoyer le classement")
-                    await asyncio.sleep(1800)
+                    await asyncio.sleep(1800)  # Attendre 30 minutes
                     rank, points = await get_team_standings()
+
                     if rank is not None and points is not None:
                         await send_standings_after_end(rank, points)
-                    else: 
-                        print(f"L'envoie du classement n'a pas eu lieu car get_team_standings() renvoie none")
-                break
+                    else:
+                        log_message("L'envoi du classement n'a pas eu lieu car get_team_standings() renvoie None.")
+                    break
 
         # Si le nombre d'appels à l'API restant est dépassé, on lève une exception et on sort de la boucle !
         except RateLimitExceededError as e:
@@ -905,37 +910,30 @@ async def check_events(fixture_id):
 
 # Cette fonction récupère le classement de l'équipe après le match  
 async def get_team_standings():
-    log_message("get_team_standings() appelée.")  
+    log_message("get_team_standings() appelée.")
     url = f"https://v3.football.api-sports.io/standings?league={current_league_id}&season={SEASON_ID}&team={TEAM_ID}"
     headers = {
         "x-apisports-key": API_FOOTBALL_KEY
     }
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
                 data = await resp.json()
+
                 # Log des données reçues
-                log_message(f"Données récupérées : {data}")  
-                
-                if 'response' in data and len(data['response']) > 0:
-                    log_message("La clé 'response' existe et contient des données.")
-                    league_info = data['response'][0]
-                    
-                    if 'standings' in league_info and len(league_info['standings']) > 0:
-                        log_message("La clé 'standings' existe et contient des données.")
-                        standings = league_info['standings'][0][0]
-                        rank = standings.get("rank")
-                        points = standings.get("points")
-                        return rank, points
-                    
-                    else:
-                        log_message("La clé 'standings' n'existe pas ou ne contient pas de données.")
-                
+                log_message(f"Données récupérées : {data}")
+
+                # Vérification des clés et extraction des informations
+                if data.get('response') and data['response'][0].get('standings') and data['response'][0]['standings'][0]:
+                    standings = data['response'][0]['standings'][0][0]
+                    rank = standings.get("rank")
+                    points = standings.get("points")
+                    return rank, points
                 else:
-                    log_message("La clé 'response' n'existe pas ou ne contient pas de données.")
-                
-                return None, None
-                
+                    log_message("Les données nécessaires sont manquantes dans la réponse de l'API.")
+                    return None, None
+
     except Exception as e:
         log_message(f"Erreur dans get_team_standings: {e}")
         return None, None
