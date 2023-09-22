@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.1.1
+# VERSION : v2.1.2
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -91,8 +91,8 @@ signals_to_handle = [sig for sig in signals_to_handle if sig is not None]
 
 # Gestion des signaux pour détecter la fermeture inattendue.
 for sig in signals_to_handle:
-    #Evite de marqué que le script se ferme alors que c'est pas le cas avec nohup !
-    if sig == signal.SIGINT:
+    # Evite de marquer que le script se ferme alors que ce n'est pas le cas avec nohup et la fermeture du terminal!
+    if sig == signal.SIGINT or sig == signal.SIGHUP:
         signal.signal(sig, signal.SIG_IGN)
     else:
         signal.signal(sig, lambda signal, frame: log_exit(False))
