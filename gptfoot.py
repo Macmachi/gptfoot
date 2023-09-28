@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.1.2
+# VERSION : v2.1.3
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -597,12 +597,23 @@ async def check_events(fixture_id):
                     total_duree_championnat = 5 + 45 + 10 + 45 + 10 + 30
                     interval = (total_duree_championnat * 60) / 90
 
-            if match_status == 'HT':
+                # Permet de ne pas mettre en pause pendant 5 minutes après une mi-temps pour manquer aucun événement!
+                ht_counter = 0
 
-                if IS_PAID_API:
-                    log_message(f"mi-temps détectée - mise en pause de l'execution du code pour 300 secondes")
-                    # On met en pause 5 minutes car les mi-temps du temps additionnelles dure 5 minutes !  
-                    await asyncio.sleep(300)
+                # Dans votre boucle principale de vérification
+                if match_status == 'HT':
+                    log_message(f"mi-temps détectée")
+                    if IS_PAID_API:
+                        log_message(f"Incrémentation du compteur de 15 secondes")
+                        ht_counter += 15  # Augmente de 15 secondes à chaque détection de HT
+
+                        # Si 5 minutes (300 secondes) se sont écoulées après la détection du statut HT permet de gérer les événements qui auraient été créés juste avant la mi-temps!
+                        if ht_counter >= 300:
+                            log_message(f"5 minutes après la détection de mi-temps on check le statut")
+                            # Mis en commentaire car en cas de prolongation pause de 5 minutes suffisent !
+                            # On met en pause 5 minutes car les mi-temps du temps additionnelles dure 5 minutes !  
+                            # await asyncio.sleep(300)
+                            
 
                     # Ajout d'une boucle pour vérifier le statut du match après la pause
                     while True:
@@ -615,6 +626,8 @@ async def check_events(fixture_id):
                             if events is not None:
                                 log_message("Réinitialisation des événements à None après la mi-temps pour éviter d'être renvoyé car on recommence la deuxième mi-temps à la 46ème car on vérifie : if events is None!\n")
                                 events = None
+                                # Réinitialiser le compteur pour les futures détections HT
+                                ht_counter = 0  
                             break
 
                         # Attendre un certain temps avant de vérifier à nouveau le statut du match
@@ -888,16 +901,7 @@ async def check_events(fixture_id):
 
                 log_message(f"Envoi des variables à send_end_message avec chat_ids: home_team: {home_team}, away_team: {away_team}, home_score: {home_score}, away_score: {away_score}, match_statistics: {match_statistics}, events: {events}\n")
                 await send_end_message(home_team, away_team, home_score, away_score, match_statistics, events)
-                if IS_PAID_API:
-                    log_message("Attente de 30 minutes avant d'envoyer le classement")
-                    await asyncio.sleep(1800)  # Attendre 30 minutes
-                    rank, points = await get_team_standings()
-
-                    if rank is not None and points is not None:
-                        await send_standings_after_end(rank, points)
-                    else:
-                        log_message("L'envoi du classement n'a pas eu lieu car get_team_standings() renvoie None.")
-                    break
+                break
 
         # Si le nombre d'appels à l'API restant est dépassé, on lève une exception et on sort de la boucle !
         except RateLimitExceededError as e:
@@ -907,36 +911,6 @@ async def check_events(fixture_id):
 
         # Pause avant de vérifier à nouveau les événements
         await asyncio.sleep(interval)
-
-# Cette fonction récupère le classement de l'équipe après le match  
-async def get_team_standings():
-    log_message("get_team_standings() appelée.")
-    url = f"https://v3.football.api-sports.io/standings?league={current_league_id}&season={SEASON_ID}&team={TEAM_ID}"
-    headers = {
-        "x-apisports-key": API_FOOTBALL_KEY
-    }
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
-                data = await resp.json()
-
-                # Log des données reçues
-                log_message(f"Données récupérées : {data}")
-
-                # Vérification des clés et extraction des informations
-                if data.get('response') and data['response'][0].get('standings') and data['response'][0]['standings'][0]:
-                    standings = data['response'][0]['standings'][0][0]
-                    rank = standings.get("rank")
-                    points = standings.get("points")
-                    return rank, points
-                else:
-                    log_message("Les données nécessaires sont manquantes dans la réponse de l'API.")
-                    return None, None
-
-    except Exception as e:
-        log_message(f"Erreur dans get_team_standings: {e}")
-        return None, None
     
 # Cette fonction reçoit un message, puis envoie le message à chaque chat_id
 async def send_message_to_all_chats(message):
@@ -1108,12 +1082,6 @@ async def notify_match_interruption():
     message = "🤖 : Le match a été interrompu !\n"   
     await send_message_to_all_chats(message)   
 
-# Envoie un message aux utilisateurs pour informer que le match a été interrompu
-async def send_standings_after_end(rank, points):
-    log_message("send_standings_after_end appelée")
-    message = f"🤖 : Classement {TEAM_NAME} :\nRang : {rank}\nPoints : {points}"  
-    await send_message_to_all_chats(message)    
-
 # Envoie un message aux utilisateurs pour informer qu'on a atteint le maximum de call à l'api et qu'on doit stopper le suivi du match
 async def notify_users_max_api_requests_reached():
     log_message("notify_users_max_api_requests_reached appelée")
@@ -1125,7 +1093,7 @@ async def send_end_message(home_team, away_team, home_score, away_score, match_s
     log_message("send_end_message() appelée.")
     message = f"🏁 Fin du match !\n{home_team} {home_score} - {away_score} {away_team}\n\n"
     # Appeler l'API ChatGPT et ajouter la réponse à la suite des statistiques du match
-    chatgpt_analysis = await call_chatgpt_api_endmatch(match_statistics, events)
+    chatgpt_analysis = await call_chatgpt_api_endmatch(match_statistics, events, home_team, home_score, away_score, away_team)
     message += "🤖 Mon analyse :\n" + chatgpt_analysis
     await send_message_to_all_chats(message)
 
@@ -1171,6 +1139,7 @@ async def call_chatgpt_api(data, language=LANGUAGE):
 
 # Analyse pour l'heure de début du match
 async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_info, venue, city):
+    log_message(f"Informations reçues par l'API : match_start_time={match_start_time}, teams={teams}, league={league}, round_info={round_info}, venue={venue}, city={city}")
     user_message = (f"Les informations du match qui a lieu aujourd'hui sont les suivantes : \n"
                     f"Ligue actuelle : {league}\n"
                     f"Tour : {round_info}\n"
@@ -1178,7 +1147,7 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
                     f"Stade et ville du stade : {venue}, {city}\n"
                     f"Heure de début : {match_start_time}\n"
                     f"L'heure actuelle est : {datetime.datetime.now()}")
-    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, fait une belle présentation du match qui aura lieu aujourd'hui avec les informations que je te donne, embellie cette présentation avec quelques émojis"
+    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, fait une brève et pertinente présentation du match qui aura lieu aujourd'hui avec les informations que je te donne, embellie cette présentation avec quelques émojis"
     data = {
         "model": "gpt-4",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
@@ -1188,6 +1157,7 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
 
 # Analyse de début de match avec des smileys
 async def call_chatgpt_api_compomatch(match_data, predictions=None):
+    log_message(f"Informations reçues par l'API : match_data={match_data}, predictions={predictions}")
     user_message = f"Voici les informations du match qui va commencer d'ici quelques minutes : {match_data}"
     if predictions:
         user_message += f"Prédictions de l'issue du match :  {predictions['winner']['name']} (Comment: {predictions['winner']['comment']})"
@@ -1202,8 +1172,9 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
 
 # Commentaire sur le goal récent
 async def call_chatgpt_api_goalmatch(player, team, player_statistics, elapsed_time, event, score_string):
+    log_message(f"Informations reçues par l'API : player={player}, team={team}, player_statistics={player_statistics}, elapsed_time={elapsed_time}, event={event}, score_string={score_string}")
     user_message = f"Le joueur qui a marqué : {player} "
-    user_message += f"L'équipe dont il fait parti': {team} "
+    user_message += f"L'équipe pour laquelle le but a été comptabilisé : {player}"
     if player_statistics:  
         user_message += f"Les statistiques du joueur pour ce match qui a marqué : {player_statistics} "
     user_message += f"La minute du match quand le goal a été marqué : {elapsed_time} "
@@ -1221,8 +1192,9 @@ async def call_chatgpt_api_goalmatch(player, team, player_statistics, elapsed_ti
 
 # Commentaire sur le goal lors de la séance de tir aux penaltys
 async def call_chatgpt_api_shootout_goal_match(player, team, player_statistics, event):
+    log_message(f"Informations reçues par l'API : player={player}, team={team}, player_statistics={player_statistics}, event={event}")
     user_message = f"Le joueur qui a marqué le pénalty lors de la séance aux tirs aux buts : {player} "
-    user_message += f"L'équipe dont il fait parti': {team} "
+    user_message += f"L'équipe pour laquelle le but a été comptabilisé : {player}"
     if player_statistics:  
         user_message += f"Les statistiques du joueur pour ce match qui a marqué : {player_statistics} "
     user_message += f"Voici les détails de l'événement goal du match en cours {event}."
@@ -1238,6 +1210,7 @@ async def call_chatgpt_api_shootout_goal_match(player, team, player_statistics, 
 
 # Commentaire sur le carton rouge 
 async def call_chatgpt_api_redmatch(player, team, elapsed_time, event):
+    log_message(f"Informations reçues par l'API : player={player}, team={team}, elapsed_time={elapsed_time}, event={event}")
     user_message = (f"Le joueur qui a pris un carton rouge : {player} "
                     f"L'équipe dont il fait parti': {team} "
                     f"La minute du match à laquelle il a pris un carton rouge : {elapsed_time} "
@@ -1251,9 +1224,14 @@ async def call_chatgpt_api_redmatch(player, team, elapsed_time, event):
     return await call_chatgpt_api(data)
 
 # Analyse de fin de match
-async def call_chatgpt_api_endmatch(match_statistics, events):
+async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_score, away_score, away_team):
+    log_message(f"Informations reçues par l'API : match_statistics={match_statistics}, events={events}")
+    
+    # Score final
+    user_message = f"📊 Score Final:\n{home_team} {home_score} - {away_score} {away_team}\n\n"
+    
     # Formater les événements du match
-    formatted_events = []
+    formatted_events = ["📢 Événements du Match:"]
     for event in events:
         time_elapsed = event['time']['elapsed']
         time_extra = event['time']['extra']
@@ -1261,19 +1239,19 @@ async def call_chatgpt_api_endmatch(match_statistics, events):
         player_name = event['player']['name']
         event_type = event['type']
         event_detail = event['detail']
-        formatted_event = f"At {time_elapsed}{'+' + str(time_extra) if time_extra else ''} min, {team_name} - {player_name} {event_detail} ({event_type})"
+        formatted_event = f"• À {time_elapsed}{'+' + str(time_extra) if time_extra else ''} min, {team_name} - {player_name} {event_detail} ({event_type})"
         formatted_events.append(formatted_event)
-    
-    user_message = "Voici les événements du match :\n" + '\n'.join(formatted_events)
+    user_message += '\n'.join(formatted_events)
 
     # Traitement des match_statistics
     if len(match_statistics) >= 2 and 'statistics' in match_statistics[0] and 'statistics' in match_statistics[1]:
-        user_message += f"\n\nVoici les statistiques du match :\n"
+        user_message += f"\n\n📉 Statistiques du Match:\n"
         for home_stat, away_stat in zip(match_statistics[0]['statistics'], match_statistics[1]['statistics']):
             if 'type' in home_stat and 'value' in home_stat and 'type' in away_stat and 'value' in away_stat:
-                user_message += f"{home_stat['type']}: {home_stat['value']} - {away_stat['value']}\n"
+                user_message += f"• {home_stat['type']}: {home_stat['value']} - {away_stat['value']}\n"
 
-    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. En utilisant les événements et statistiques de match fournis, donne une analyse détaillée de la prestation du {TEAM_NAME} pendant le match."
+    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. En utilisant le score final, les événements et statistiques de match fournis, donne une analyse détaillée de la prestation du {TEAM_NAME} pendant le match."
+    
     data = {
         "model": "gpt-4",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
