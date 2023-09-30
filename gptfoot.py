@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.1.3
+# VERSION : v2.1.4
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -401,17 +401,21 @@ async def get_check_match_status(fixture_id):
             "lineups": {}
         }
         
-        if fixture['lineups']:
+        if 'lineups' in fixture and len(fixture['lineups']) >= 2:
             home_lineup = fixture['lineups'][0]
             away_lineup = fixture['lineups'][1]
+            
+            home_startXI = home_lineup.get('startXI', [])
+            away_startXI = away_lineup.get('startXI', [])
+            
             match_data["lineups"] = {
                 home_lineup['team']['name']: {
-                    "formation": home_lineup['formation'],
-                    "startXI": home_lineup['startXI']
+                    "formation": home_lineup.get('formation', ''),
+                    "startXI": home_startXI
                 },
                 away_lineup['team']['name']: {
-                    "formation": away_lineup['formation'],
-                    "startXI": away_lineup['startXI']
+                    "formation": away_lineup.get('formation', ''),
+                    "startXI": away_startXI
                 }
             }
         else:
@@ -1158,10 +1162,11 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
 # Analyse de début de match avec des smileys
 async def call_chatgpt_api_compomatch(match_data, predictions=None):
     log_message(f"Informations reçues par l'API : match_data={match_data}, predictions={predictions}")
-    user_message = f"Voici les informations du match qui va commencer d'ici quelques minutes : {match_data}"
+    if match_data is not None:
+        user_message = f"Voici les informations du match qui va commencer d'ici quelques minutes : {match_data}"
     if predictions:
         user_message += f"Prédictions de l'issue du match :  {predictions['winner']['name']} (Comment: {predictions['winner']['comment']})"
-    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. Fournis-moi une analyse concise des compositions avec des émojis pour rendre la présentation attrayante et en commentant les formations de début de match et les prédictions."
+    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. Si et uniquement si je te fournis ces informations : fournis-moi une analyse concise des compositions avec des émojis pour rendre la présentation attrayante et en commentant les formations de début de match et les prédictions."
     data = {
         "model": "gpt-4",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
