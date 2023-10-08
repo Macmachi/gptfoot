@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.1.4
+# VERSION : v2.1.5
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -1151,7 +1151,7 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
                     f"Stade et ville du stade : {venue}, {city}\n"
                     f"Heure de début : {match_start_time}\n"
                     f"L'heure actuelle est : {datetime.datetime.now()}")
-    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, fait une brève et pertinente présentation du match qui aura lieu aujourd'hui avec les informations que je te donne, embellie cette présentation avec quelques émojis"
+    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, fait une brève et pertinente présentation en français du match qui aura lieu aujourd'hui avec les informations que je te donne, embellie cette présentation avec quelques émojis"
     data = {
         "model": "gpt-4",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
@@ -1181,7 +1181,7 @@ async def call_chatgpt_api_goalmatch(player, team, player_statistics, elapsed_ti
     user_message = f"Le joueur qui a marqué : {player} "
     user_message += f"L'équipe pour laquelle le but a été comptabilisé : {player}"
     if player_statistics:  
-        user_message += f"Les statistiques du joueur pour ce match qui a marqué : {player_statistics} "
+        user_message += f"Les statistiques du joueur pour ce match qui a marqué (n'utilise pas le temps de jeu du joueur) : {player_statistics} "
     user_message += f"La minute du match quand le goal a été marqué : {elapsed_time} "
     user_message += f"Le score actuel après le but qui vient d'être marqué pour contextualisé ta réponse , mais ne met pas le score dans ta réponse : {score_string} "
     user_message += f"Voici les détails de l'événement goal du match en cours {event}, utilise uniquement les informations pertinentes liées au goal marqué à la {elapsed_time} minute."
@@ -1201,7 +1201,7 @@ async def call_chatgpt_api_shootout_goal_match(player, team, player_statistics, 
     user_message = f"Le joueur qui a marqué le pénalty lors de la séance aux tirs aux buts : {player} "
     user_message += f"L'équipe pour laquelle le but a été comptabilisé : {player}"
     if player_statistics:  
-        user_message += f"Les statistiques du joueur pour ce match qui a marqué : {player_statistics} "
+        user_message += f"Les statistiques du joueur pour ce match qui a marqué (n'utilise pas le temps de jeu du joueur): {player_statistics} "
     user_message += f"Voici les détails de l'événement goal du match en cours {event}."
 
     system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal lors de cette séance aux tirs au but, tu ne dois pas faire plus de deux phrases courtes en te basant sur les informations que je te donne."
