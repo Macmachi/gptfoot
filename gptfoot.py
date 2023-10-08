@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.1.5
+# VERSION : v2.1.6
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -917,8 +917,14 @@ async def check_events(fixture_id):
         await asyncio.sleep(interval)
     
 # Cette fonction reçoit un message, puis envoie le message à chaque chat_id
-async def send_message_to_all_chats(message):
+async def send_message_to_all_chats(message, language=LANGUAGE):
     log_message("send_message_to_all_chats() appelée.")
+
+    # Traduction du message si la langue n'est pas le français en faisant appel à la fonction spévifique utilisant gpt3.5
+    if language.lower() != "french":
+        log_message(f"Traduction du message car la langue détectée est {language}.")
+        message = await translate_message(message, language)
+    
     log_message(f"Contenu du message envoyé : {message}")
 
     # Pour Telegram:
@@ -1103,8 +1109,36 @@ async def send_end_message(home_team, away_team, home_score, away_score, match_s
 
 # DEBUT DE CODE POUR CONFIGURATION IA
 
+# Fonction pour traduire les messages dans la langue désirée 
+async def translate_message(message, language):
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}"
+    }
+        
+    log_message(f"La langue détectée n'est pas le français donc on lance la traduction")
+    translation_prompt = f"Translate the following sentence from french to {language}: {message}"
+    translation_data = {
+        "model": "gpt-3.5-turbo",
+        "messages": [{"role": "user", "content": translation_prompt}],
+        "max_tokens": 2000
+    }
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            translation_response = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=translation_data, timeout=200.0)
+            translation_response.raise_for_status()
+            translated_message = translation_response.json()["choices"][0]["message"]["content"].strip()
+            return translated_message
+        except httpx.HTTPError as e:
+            log_message(f"Error during message translation with the OpenAI API: {e}")
+            return f"🤖 : Sorry, an error occurred while communicating with the translation API."
+        except Exception as e:
+            log_message(f"Unexpected error during message translation: {e}")
+            return f"🤖 : Sorry, an unexpected error occurred during message translation."
+
 # Fonction générique pour appeler l'API ChatGPT
-async def call_chatgpt_api(data, language=LANGUAGE):
+async def call_chatgpt_api(data):
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {API_KEY}"
@@ -1116,21 +1150,7 @@ async def call_chatgpt_api(data, language=LANGUAGE):
             response_json = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=200.0)
             response_json.raise_for_status()
             message = response_json.json()["choices"][0]["message"]["content"].strip()
-            
-            # Traduction du message si la langue n'est pas le français
-            if language.lower() != "french":
-                log_message(f"La langue détectée n'est pas le français donc on lance la traduction")
-                translation_prompt = f"Translate the following sentence from french to {language}: {message}"
-                translation_data = {
-                    "model": "gpt-3.5-turbo",
-                    "messages": [{"role": "user", "content": translation_prompt}],
-                    "max_tokens": 2000
-                }
-                translation_response = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=translation_data, timeout=200.0)
-                translation_response.raise_for_status()
-                message = translation_response.json()["choices"][0]["message"]["content"].strip()
-                return message
-            
+             
             log_message(f"\n Succès de la récupération de la réponse GPT-4 \n")
             return message
 
