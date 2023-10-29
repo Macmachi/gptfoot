@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.1.6
+# VERSION : v2.1.7
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -1201,12 +1201,12 @@ async def call_chatgpt_api_goalmatch(player, team, player_statistics, elapsed_ti
     user_message = f"Le joueur qui a marqué : {player} "
     user_message += f"L'équipe pour laquelle le but a été comptabilisé : {player}"
     if player_statistics:  
-        user_message += f"Les statistiques du joueur pour ce match qui a marqué (n'utilise pas le temps de jeu du joueur) : {player_statistics} "
+        user_message += f"Les statistiques du joueur pour ce match qui a marqué, n'utilise pas le temps de jeu du joueur : {player_statistics} "
     user_message += f"La minute du match quand le goal a été marqué : {elapsed_time} "
     user_message += f"Le score actuel après le but qui vient d'être marqué pour contextualisé ta réponse , mais ne met pas le score dans ta réponse : {score_string} "
-    user_message += f"Voici les détails de l'événement goal du match en cours {event}, utilise uniquement les informations pertinentes liées au goal marqué à la {elapsed_time} minute."
+    user_message += f"Voici les détails de l'événement goal du match en cours {event}, utilise les informations pertinentes liées au goal marqué à la {elapsed_time} minute sans parler d'assist!"
 
-    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal le plus récent du match qui est en cours, tu ne dois pas faire plus de trois phrases courtes en te basant sur les informations que je te donne comme qui est le buteur et ses statistique (si disponible) et qui a fait l'assist (si disponible)."
+    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal le plus récent du match qui est en cours, tu ne dois pas faire plus de trois phrases courtes en te basant sur les informations que je te donne comme qui est le buteur et ses statistiques (si disponible)"
     
     data = {
         "model": "gpt-4",
@@ -1280,7 +1280,7 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
     data = {
         "model": "gpt-4",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-        "max_tokens": 2000
+        "max_tokens": 1800
     }
 
     return await call_chatgpt_api(data)
