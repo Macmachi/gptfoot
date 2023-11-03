@@ -32,6 +32,9 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * [Low priority] Inclusion of OpenAI API call costs
 
 ## ⚠ Known Issues
+* When a penalty miss occurs, the following goal(s) during a match are not sent (will be corrected shortly)
+* In very rare instances, it is possible that if a goal is scored and then corrected, and in the meantime goals are scored, the score sent back may have been updated during the correction (message of a new goal). However, the details of the match and the information linked to the goal should make it possible to identify that it is a correction of the goal and not a new goal.
+* The bot cannot provide ongoing match information if launched on a server during the match; only upcoming matches are considered
 * [Free API] Due to API call limitations, 5-minute breaks during extra time are considered as regular half-times, causing the script to pause for 13 minutes
 * [Free API] Due to API call limitations, during penalty shootout sessions, the script pauses for 20 minutes (good to know if ever but penalty goals are managed differently than goals during a match)
 * [Free API] In very rare instances, if two goals are scored in quick succession and there's a delay in API score updates, the score might not be correctly updated until the next goal or the end of the match
@@ -39,8 +42,7 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * [Free API] It is possible that some events occurring in the last seconds of a period may not be detected
 * [Paid API] The script does not update the score with penalty shots as this is handled differently
 * [Paid API] Do not consider the goals that would be invalidated during the penalty shootout session
-* In very rare instances, it is possible that if a goal is scored and then corrected, and in the meantime goals are scored, the score sent back may have been updated during the correction (message of a new goal). However, the details of the match and the information linked to the goal should make it possible to identify that it is a correction of the goal and not a new goal.
-* The bot cannot provide ongoing match information if launched on a server during the match; only upcoming matches are considered
+
 
 ## Licence:
 Attribution-NonCommercial 4.0 International (https://creativecommons.org/licenses/by-nc/4.0/legalcode) 
