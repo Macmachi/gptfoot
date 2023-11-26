@@ -32,7 +32,8 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * [Low priority] Inclusion of OpenAI API call costs
 
 ## ⚠ Known Issues
-* When a penalty miss occurs, the following goal(s) during a match are not sent (will be corrected shortly)
+* When a penalty miss occurs, the following goal(s) during a match are not sent (will be corrected in the futur)
+* When a goal is disallowed under certain conditions, it seems that no alert is sent to indicate that the goal has been cancelled (will be corrected in the futur)
 * In very rare instances, it is possible that if a goal is scored and then corrected, and in the meantime goals are scored, the score sent back may have been updated during the correction (message of a new goal). However, the details of the match and the information linked to the goal should make it possible to identify that it is a correction of the goal and not a new goal.
 * The bot cannot provide ongoing match information if launched on a server during the match; only upcoming matches are considered
 * [Free API] Due to API call limitations, 5-minute breaks during extra time are considered as regular half-times, causing the script to pause for 13 minutes
