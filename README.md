@@ -32,8 +32,8 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * [Low priority] Inclusion of OpenAI API call costs
 
 ## ⚠ Known Issues
-* When a penalty miss occurs, the following goal(s) during a match are not sent (will be corrected in the futur)
-* When a goal is disallowed under certain conditions, it seems that no alert is sent to indicate that the goal has been cancelled (will be corrected in the futur)
+* When a penalty miss occurs, the following goal during a match are not sent under certain conditions (Monitoring for Correction)
+* When a goal is disallowed under certain conditions, it seems that no alert is sent to indicate that the goal has been cancelled (Monitoring for Correction)
 * In very rare instances, it is possible that if a goal is scored and then corrected, and in the meantime goals are scored, the score sent back may have been updated during the correction (message of a new goal). However, the details of the match and the information linked to the goal should make it possible to identify that it is a correction of the goal and not a new goal.
 * The bot cannot provide ongoing match information if launched on a server during the match; only upcoming matches are considered
 * [Free API] Due to API call limitations, 5-minute breaks during extra time are considered as regular half-times, causing the script to pause for 13 minutes
@@ -41,7 +41,7 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * [Free API] In very rare instances, if two goals are scored in quick succession and there's a delay in API score updates, the score might not be correctly updated until the next goal or the end of the match
 * [Free API] In very rare instances, it's possible that a disallowed goal might go undetected if two scored goals are identified, including one that was disallowed, within the same interval between two checks. However, the score should still be displayed accurately in such cases
 * [Free API] It is possible that some events occurring in the last seconds of a period may not be detected
-* [Paid API] The script does not update the score with penalty shots as this is handled differently
+* [Paid API] The script does not update the score with penalty shots as this is handled differently (Analysis of the AI at the end partially incorrect)
 * [Paid API] Do not consider the goals that would be invalidated during the penalty shootout session
 
 
