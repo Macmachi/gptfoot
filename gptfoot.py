@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.1.7
+# VERSION : v2.1.8
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -826,6 +826,14 @@ async def check_events(fixture_id):
                                 if goal_elapsed_time < current_elapsed_time + allowed_difference:
                                     log_message(f"[ATTENTION] L'event goal a été enregistré mais n'a pas été a été détecté dans un interval de 10 minutes par rapport au temps actuel du match (car trop de temps a passé!)")
                                     sent_events.add(event_key)
+                        
+                    # Traiter un penalty manqué
+                    if event['type'] == 'Goal' and event['detail'] == 'Missed Penalty':
+                        last_missed_penalty_time = event['time']['elapsed']
+                        log_message(f"Penalty manqué détecté à {last_missed_penalty_time} minutes.")
+                        log_message(f"event_key enregistrée (penalty missed) : {event_key}")
+                        sent_events.add(event_key)
+                        continue 
 
                 elif event['type'] == "Card" and event['detail'] == "Red Card":
                     log_message(f"Carton rouge détecté")
@@ -1275,12 +1283,12 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
             if 'type' in home_stat and 'value' in home_stat and 'type' in away_stat and 'value' in away_stat:
                 user_message += f"• {home_stat['type']}: {home_stat['value']} - {away_stat['value']}\n"
 
-    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. En utilisant le score final, les événements et statistiques de match fournis, donne une analyse détaillée de la prestation du {TEAM_NAME} pendant le match."
+    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. En utilisant le score final, les événements et statistiques de match fournis, donne une analyse détaillée de 1999 caractères maximum de la prestation du {TEAM_NAME} pendant le match."
     
     data = {
         "model": "gpt-4",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-        "max_tokens": 1800
+        "max_tokens": 2000
     }
 
     return await call_chatgpt_api(data)
