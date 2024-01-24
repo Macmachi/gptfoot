@@ -27,13 +27,13 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 
 ## 🌟 Potential future updates
 * [Low priority] Change of OpenAI's model to use GPT-4 turbo when it becomes available in a stable version
-* [Low priority] Removal of information when scoring a goal via the API call, as the information provided is often not correct due to the API and the model's interpretation.
 * [Low priority] Make the bot more flexible by adding more events such as yellow cards and player changes, with the option of enabling or disabling events in config.ini. The idea behind the bot was to send only essential messages, so this is not a high priority.
 * [Low priority] Implement a better scoring management for penalty shootouts, as they are not handled the same way as regular goals
 * [Low priority] Improved handling of season ID retrieval (currently requires manual adjustment in config.ini at the beginning of each season)
 * [Low priority] Inclusion of OpenAI API call costs
 
 ## ⚠ Known Issues
+* A bug seems to occur when a new goal is scored but an old goal is updated (for example, in terms of time). The new goal is not sent, but the score is updated, which seems to prevent the sending of the new goal. (Monitoring for Correction & Analysis of ongoing logs)
 * When a penalty miss occurs, the following goal during a match are not sent under certain conditions (Monitoring for Correction)
 * When a goal is disallowed under certain conditions, it seems that no alert is sent to indicate that the goal has been cancelled. This could perhaps be due to a penalty considered as scored, whose score has not been updated but is then cancelled. (Monitoring for Correction)
 * In very rare instances, it is possible that if a goal is scored and then corrected, and in the meantime goals are scored, the score sent back may have been updated during the correction (message of a new goal). However, the details of the match and the information linked to the goal should make it possible to identify that it is a correction of the goal and not a new goal.
