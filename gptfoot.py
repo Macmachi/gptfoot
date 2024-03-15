@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.1.8
+# VERSION : v2.1.9
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -660,30 +660,30 @@ async def check_events(fixture_id):
                         await asyncio.sleep(120)
 
             if match_status == 'P':
-                if not IS_PAID_API:
-                    log_message(f"Séance de tir au but attenre 20 minutes la fin des pénos pour envoyer les informations du match restants + fin de match pour limiter le nombre d'appels à l'api !")
-                    # Envoie d'un message aux utilisateurs que le script est mis en pause jusqu'à la fin du match pour l'analyse du match
-                    await pause_for_penalty_shootout()
-                    # Pause de 20 minutes
-                    await asyncio.sleep(1200)  
-                    
-                    # Ajout d'une boucle pour vérifier le statut du match après les pénos
-                    while True:
-                        log_message(f"On vérifie les pénos (PEN) sont terminés (statut actuel : {match_status})")
-                        events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
-                        log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n match_data : (pas log)\n")
+                # On met de côté les penalties car pas pertinent dans la façon dont le code les gère actuellement et pas forcément pertinent tout court car beaucoup de messages envoyés.
+                log_message("Séance de tir au but : attente de 20 minutes la fin des pénos pour envoyer les informations du match restants + fin de match pour limiter le nombre d'appels à l'api !")
+                await pause_for_penalty_shootout()
 
-                        if match_status != 'PEN':
-                            log_message(f"Le match a repris (statut actuel : {match_status}), continuation de l'execution du code (check_events)")
-                            '''
-                            if events is not None:
-                                log_message("Réinitialisation des événements à None après la mi-temps pour éviter d'être renvoyé.\n")
-                                events = None
-                            '''    
-                            break  
-                        
-                        # Attendre un certain temps avant de vérifier à nouveau le statut du match
-                        await asyncio.sleep(120)                   
+                if IS_PAID_API:
+                    # Attente spécifique pour l'API payante
+                    wait_time = 30  # Temps d'attente entre chaque vérification en secondes pour l'API payante
+                else:
+                    # Pause de 20 minutes pour l'API non payante
+                    await asyncio.sleep(1200)  # Temps d'attente initial pour l'API non payante
+                    wait_time = 120  # Temps d'attente entre chaque vérification en secondes pour l'API non payante
+
+                # Ajout d'une boucle pour vérifier le statut du match après les pénos
+                while True:
+                    log_message(f"On vérifie si les pénos (PEN) sont terminés (statut actuel : {match_status})")
+                    events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
+                    log_message("Données récupérées de get_team_live_events dans check_events; Statistiques de match : (pas log), Status de match : {}, Events {}, match_data : (pas log)".format(match_status, events))
+
+                    if match_status != 'PEN':
+                        log_message(f"Le match a repris (statut actuel : {match_status}), continuation de l'exécution du code (check_events)")
+                        break
+
+                    # Attendre un certain temps avant de vérifier à nouveau le statut du match
+                    await asyncio.sleep(wait_time)           
 
             if match_status == 'INT':
                 log_message(f"Match interrompu (INT)")
@@ -1091,7 +1091,7 @@ async def send_red_card_message(player, team, elapsed_time, event):
 # Envoie un message aux utilisateurs pour informer que le suivi est mis en pause pour les tirs aux but qu'un résumé du match sera envoyé à la fin du match
 async def pause_for_penalty_shootout():
     log_message("pause_for_penalty_shootout appelée")
-    message = "🤖 : Le suivi est mis en pause pour les tirs aux but mais je vous enverrai un résumé du match plus tard.\n"   
+    message = "🤖 : Le suivi est mis en pause pour les tirs aux but mais je vous enverrai un résumé du match à la fin.\n"   
     await send_message_to_all_chats(message)  
 
 # Envoie un message aux utilisateurs pour informer que le match a été interrompu
