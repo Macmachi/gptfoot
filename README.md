@@ -33,8 +33,8 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * [Low priority] Inclusion of OpenAI API call costs
 
 ## ⚠ Known Issues
-* A bug seems to occur when a new goal is scored but an old goal is updated (for example, in terms of time). The new goal is not sent, but the score is updated, which seems to prevent the sending of the new goal. (Monitoring for Correction & Analysis of ongoing logs)
-* When a penalty miss occurs, the following goal during a match are not sent under certain conditions (Monitoring Correction)
+✅ [SOLVED] A bug seems to occur when a new goal is scored but an old goal is updated (for example, in terms of time). The new goal is not sent, but the score is updated, which seems to prevent the sending of the new goal.
+✅ [SOLVED] When a penalty miss occurs, the following goal during a match are not sent under certain conditions (Monitoring Correction)
 * When a goal is disallowed under certain conditions, it seems that no alert is sent to indicate that the goal has been cancelled. This could perhaps be due to a penalty considered as scored, whose score has not been updated but is then cancelled. (Monitoring for Correction)
 * In very rare instances, it is possible that if a goal is scored and then corrected, and in the meantime goals are scored, the score sent back may have been updated during the correction (message of a new goal). However, the details of the match and the information linked to the goal should make it possible to identify that it is a correction of the goal and not a new goal.
 * The bot cannot provide ongoing match information if launched on a server during the match; only upcoming matches are considered
