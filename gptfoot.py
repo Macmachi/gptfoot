@@ -1154,12 +1154,12 @@ async def call_chatgpt_api(data):
     
     async with httpx.AsyncClient() as client:
         try:
-            # Appel initial à GPT-4 pour obtenir le message
+            # Appel initial à gpt-4-turbo pour obtenir le message
             response_json = await client.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=200.0)
             response_json.raise_for_status()
             message = response_json.json()["choices"][0]["message"]["content"].strip()
              
-            log_message(f"\n Succès de la récupération de la réponse GPT-4 \n")
+            log_message(f"\n Succès de la récupération de la réponse gpt-4-turbo \n")
             return message
 
         except httpx.HTTPError as e:
@@ -1181,7 +1181,7 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
                     f"L'heure actuelle est : {datetime.datetime.now()}")
     system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, fait une brève et pertinente présentation en français du match qui aura lieu aujourd'hui avec les informations que je te donne, embellie cette présentation avec quelques émojis"
     data = {
-        "model": "gpt-4",
+        "model": "gpt-4-turbo",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
         "max_tokens": 1000
     }
@@ -1196,7 +1196,7 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
         user_message += f"Prédictions de l'issue du match :  {predictions['winner']['name']} (Comment: {predictions['winner']['comment']})"
     system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. Si et uniquement si je te fournis ces informations : fournis-moi une analyse concise des compositions avec des émojis pour rendre la présentation attrayante et en commentant les formations de début de match et les prédictions."
     data = {
-        "model": "gpt-4",
+        "model": "gpt-4-turbo",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
         "max_tokens": 2000
     }
@@ -1217,7 +1217,7 @@ async def call_chatgpt_api_goalmatch(player, team, player_statistics, elapsed_ti
     system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal le plus récent du match qui est en cours, tu ne dois pas faire plus de trois phrases courtes en te basant sur les informations que je te donne comme qui est le buteur et ses statistiques (si disponible)"
     
     data = {
-        "model": "gpt-4",
+        "model": "gpt-4-turbo",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
         "max_tokens": 2000
     }
@@ -1235,7 +1235,7 @@ async def call_chatgpt_api_shootout_goal_match(player, team, player_statistics, 
     system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal lors de cette séance aux tirs au but, tu ne dois pas faire plus de deux phrases courtes en te basant sur les informations que je te donne."
     
     data = {
-        "model": "gpt-4",
+        "model": "gpt-4-turbo",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
         "max_tokens": 1000
     }
@@ -1250,7 +1250,7 @@ async def call_chatgpt_api_redmatch(player, team, elapsed_time, event):
                     f"Voici les détails de l'événement du carton rouge du match en cours {event}, utilise uniquement les informations pertinentes liées à ce carton rouge de la {elapsed_time} minute.")
     system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi ce carton rouge le plus récent du match qui est en cours, tu ne dois pas faire plus de deux phrases courtes en te basant sur les informations que je te donne."
     data = {
-        "model": "gpt-4",
+        "model": "gpt-4-turbo",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
         "max_tokens": 1000
     }
@@ -1286,7 +1286,7 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
     system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. En utilisant le score final, les événements et statistiques de match fournis, donne une analyse détaillée de 1999 caractères maximum de la prestation du {TEAM_NAME} pendant le match."
     
     data = {
-        "model": "gpt-4",
+        "model": "gpt-4-turbo",
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
         "max_tokens": 2000
     }
