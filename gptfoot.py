@@ -50,7 +50,7 @@ SERVER_TIMEZONE_STR = config['SERVER'].get('TIMEZONE', 'Europe/Paris')
 # Récupérer la langue à partir de la section LANGUAGES
 LANGUAGE = config['LANGUAGES'].get('LANGUAGE', 'english')
 # Définition de la variable globale pour le modèle pour l'analyse des ébénements
-GPT_MODEL_NAME = "GPT-4o"
+GPT_MODEL_NAME = "gpt-4o"
 # Définition de la variable globale pour la traduction des événements
 GPT_MODEL_NAME_TRANSLATION = "gpt-3.5-turbo"
 
