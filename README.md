@@ -1,13 +1,13 @@
 # ⚽ gptfoot (Telegram/Discord bot)
 
 ## 🌐 Overview
-gptfoot is a bot for Telegram and Discord, meticulously designed to track match events for clubs across multiple leagues, all while minimizing message volume. It utilizes the cutting-edge GPT-4 technology from OpenAI to provide live match commentary. The bot offers a broad range of features, from showcasing team lineups to reporting goals, red cards, and delivering comprehensive match analyses, all backed by the advanced capabilities of GPT-4. It's a game-changer for those looking to stay updated on matches in a seamless and informative way.
+gptfoot is a bot for Telegram and Discord, meticulously designed to track match events for clubs across multiple leagues, all while minimizing message volume. It utilizes the cutting-edge GPT-4o technology from OpenAI to provide live match commentary. The bot offers a broad range of features, from showcasing team lineups to reporting goals, red cards, and delivering comprehensive match analyses, all backed by the advanced capabilities of GPT-4. It's a game-changer for those looking to stay updated on matches in a seamless and informative way.
 
 ## 🛠 Features
 * Detection of whether a team is playing a match today in different leagues
 * Real-time monitoring of match events using the Telegram bot powered by OpenAI's GPT-4-turbo
 * Integration with the api-football API for retrieving match data, making predictions, and obtaining rankings (if available).
-* AI-driven match analysis powered by OpenAI's GPT-4-turbo
+* AI-driven match analysis powered by OpenAI's GPT-4o
 * Can be used with a Telegram bot, a Discord bot, or both (available options in the config.ini file)
 * Can be used with either the free or paid API from api-football (available option in the config.ini file)
 * The frequency of messages is limited to ensure a pleasant experience for Telegram and Discord users
