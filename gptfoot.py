@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.2.1
+# VERSION : v2.2.2
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -54,6 +54,9 @@ GPT_MODEL_NAME = "gpt-4o"
 # Définition de la variable globale pour la traduction des événements
 GPT_MODEL_NAME_TRANSLATION = "gpt-3.5-turbo"
 
+# Variable pour suivre si le message a été envoyé pendant les tirs au but
+penalty_message_sent = False
+interruption_message_sent = False
 # Convertir la chaîne du fuseau horaire en objet pytz
 server_timezone = pytz.timezone(SERVER_TIMEZONE_STR)
 # Convertir la chaîne de LEAGUE_IDS en une liste d'entiers
@@ -567,10 +570,12 @@ async def check_events(fixture_id):
     log_message("check_events(fixture_id) appelée.")
     global sent_events
     global IS_PAID_API
+    global penalty_message_sent  
+    global interruption_message_sent  
     current_score = {'home': 0, 'away': 0}
     previous_score = {'home': 0, 'away': 0}
     score_updated = False
-    
+
     while True:
         try:
             events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
@@ -664,9 +669,11 @@ async def check_events(fixture_id):
                         await asyncio.sleep(120)
 
             if match_status == 'P':
-                # On met de côté les penalties car pas pertinent dans la façon dont le code les gère actuellement et pas forcément pertinent tout court car beaucoup de messages envoyés.
-                log_message("Séance de tir au but : attente de 20 minutes la fin des pénos pour envoyer les informations du match restants + fin de match pour limiter le nombre d'appels à l'api !")
-                await pause_for_penalty_shootout()
+                if not penalty_message_sent:
+                    # On met de côté les penalties car pas pertinent dans la façon dont le code les gère actuellement et pas forcément pertinent tout court car beaucoup de messages envoyés.
+                    log_message("Séance de tir au but : attente de 20 minutes la fin des pénos pour envoyer les informations du match restants + fin de match pour limiter le nombre d'appels à l'api !")
+                    await pause_for_penalty_shootout()
+                    penalty_message_sent = True
 
                 if IS_PAID_API:
                     # Attente spécifique pour l'API payante
@@ -674,7 +681,7 @@ async def check_events(fixture_id):
                 else:
                     # Pause de 20 minutes pour l'API non payante
                     await asyncio.sleep(1200)  # Temps d'attente initial pour l'API non payante
-                    wait_time = 120  # Temps d'attente entre chaque vérification en secondes pour l'API non payante
+                    wait_time = 300  # Temps d'attente entre chaque vérification en secondes pour l'API non payante
 
                 # Ajout d'une boucle pour vérifier le statut du match après les pénos
                 while True:
@@ -684,6 +691,7 @@ async def check_events(fixture_id):
 
                     if match_status != 'PEN':
                         log_message(f"Le match a repris (statut actuel : {match_status}), continuation de l'exécution du code (check_events)")
+                        penalty_message_sent = False  # Réinitialiser pour les prochains tirs au but si nécessaire
                         break
 
                     # Attendre un certain temps avant de vérifier à nouveau le statut du match
@@ -692,11 +700,17 @@ async def check_events(fixture_id):
             if match_status == 'INT':
                 log_message(f"Match interrompu (INT)")
                 # Envoie d'un message aux utilisateurs pour dire aux utilisateurs qu'une interruption du match a lieu
-                await notify_match_interruption()
+                if not interruption_message_sent:
+                    await notify_match_interruption()
+                    interruption_message_sent = True
 
-                if not IS_PAID_API:
-                    # Pause de 10 minutes
-                    await asyncio.sleep(600)  
+                if IS_PAID_API:
+                    # Attente spécifique pour l'API payante
+                    wait_time = 120  # Temps d'attente entre chaque vérification en secondes pour l'API payante
+                else:
+                    # Pause de 20 minutes pour l'API non payante
+                    await asyncio.sleep(600)  # Temps d'attente initial pour l'API non payante
+                    wait_time = 600  # Temps d'attente entre chaque vérification en secondes pour l'API non payante
                     
                     # Ajout d'une boucle pour vérifier le statut du match après les pénos
                     while True:
@@ -711,10 +725,12 @@ async def check_events(fixture_id):
                                 log_message("Réinitialisation des événements à None après la mi-temps pour éviter d'être renvoyé.\n")
                                 events = None
                             '''    
+                            # Réinitialiser pour les prochaines interruptions si nécessaire
+                            interruption_message_sent = False
                             break  
                         
                         # Attendre un certain temps avant de vérifier à nouveau le statut du match
-                        await asyncio.sleep(120)         
+                        await asyncio.sleep(wait_time)       
 
             # Vérifiez que events n'est pas None avant de l'itérer
             if events is None:
@@ -1287,12 +1303,12 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
             if 'type' in home_stat and 'value' in home_stat and 'type' in away_stat and 'value' in away_stat:
                 user_message += f"• {home_stat['type']}: {home_stat['value']} - {away_stat['value']}\n"
 
-    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. En utilisant le score final, les événements et statistiques de match fournis, donne une analyse détaillée de 300 mots maximum de la prestation du {TEAM_NAME} pendant le match."
+    system_prompt = f"Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. En utilisant le score final, les événements et statistiques de match fournis, donne une analyse détaillée de 270 mots maximum de la prestation du {TEAM_NAME} pendant le match."
     
     data = {
         "model": GPT_MODEL_NAME,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-        "max_tokens": 1500
+        "max_tokens": 1300
     }
 
     return await call_chatgpt_api(data)
