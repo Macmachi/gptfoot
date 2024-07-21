@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.2.2
+# VERSION : v2.2.3
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -575,6 +575,7 @@ async def check_events(fixture_id):
     current_score = {'home': 0, 'away': 0}
     previous_score = {'home': 0, 'away': 0}
     score_updated = False
+    is_first_event = True
 
     while True:
         try:
@@ -800,9 +801,11 @@ async def check_events(fixture_id):
                                 if goal_elapsed_time >= current_elapsed_time + allowed_difference:
     
                                     log_message(f"L'événement de goal a été détecté dans un interval de 10 minutes par rapport au temps actuel du match")    
-                                    # On pourrait envoyer l'événement goal avant cette condition pour avoir un bot plus réactif MAIS les données envoyées soient corrigées ou incomplètes (joueur qui a marqué, ses statistiques, détail du goal ou annulation du goal)  
-                                    if new_score != current_score:
-                                        log_message(f"new_score != current_score")
+                                    # On pourrait envoyer l'événement goal avant cette condition pour avoir un bot plus réactif MAIS les données envoyées soient corrigées ou incomplètes (joueur qui a marqué, ses statistiques, détail du goal ou annulation du goal)
+                                    # Cette nouvelle condition avec l'ajout de is_first_event permet de détecter et d'envoyer le message pour le premier but du match,
+                                    #  même si new_score est encore égal à current_score (ce qui peut arriver si le premier but est détecté avant que new_score ne soit mis à jour).  
+                                    if is_first_event or new_score != current_score:
+                                        log_message(f"Premier événement ou nouveau score détecté")
                                         # Ajout de la logique pour vérifier une augmentation significative du score entre deux vérifications (ex : on passe de 0-2 à 0-4) afin d'éviter d'envoyer le score à ce moment mais à la sortie de la boucle dans un nouveau message ! 
                                         significant_increase_in_score = False
                                         # Si l'équipe à domicile a marqué plus d'un but
@@ -829,7 +832,8 @@ async def check_events(fixture_id):
                                             log_message(f"event_key enregistrée : {event_key}")
                                             sent_events.add(event_key)
                                             # On mettra a jour le score à la sortie de la boucle for event in events: car il peut avoir plusieurs événements à véfirier (et pas forcément des buts) dans un itération avant de mettre à jour le score comme une correction d'un but qui empêcherait de repasser dans if new_score != current_score: si le score était mis à jour là !
-                                            score_updated = True  
+                                            score_updated = True
+                                            is_first_event = False  
                                     else:
                                         log_message(f"new_score == current_score")
                                         # Car le score n'est plus mis à jour de la même façon pendant les tirs au penaltys donc on rentre normalement dans cette condition si on utilise l'api payante uniquement !
