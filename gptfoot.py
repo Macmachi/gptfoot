@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.2.3
+# VERSION : v2.2.4
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -1023,9 +1023,16 @@ async def send_match_today_message(match_start_time, fixture_id, current_league_
 # Envoie un message de début de match aux utilisateurs avec des informations sur le match, les compositions des équipes.
 async def send_compo_message(match_data, predictions=None):
     log_message("send_compo_message() appelée.")
-    # Appeler l'API ChatGPT  
-    chatgpt_analysis = await call_chatgpt_api_compomatch(match_data, predictions)
-    message = "🤖 : " + chatgpt_analysis
+    log_message(f"Informations reçues par l'API : match_data={match_data}, predictions={predictions}")
+
+    if match_data is None:
+        log_message("Erreur : match_data est None dans send_compo_message")
+        message = "🤖 : Désolé, je n'ai pas pu obtenir les informations sur la composition des équipes pour le moment."
+    else:
+        # Appeler l'API ChatGPT  
+        chatgpt_analysis = await call_chatgpt_api_compomatch(match_data, predictions)
+        message = "🤖 : " + chatgpt_analysis
+
     # Envoyer le message du match à tous les chats.
     await send_message_to_all_chats(message)
 
@@ -1214,11 +1221,19 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
 # Analyse de début de match avec des smileys
 async def call_chatgpt_api_compomatch(match_data, predictions=None):
     log_message(f"Informations reçues par l'API : match_data={match_data}, predictions={predictions}")
+    
+    user_message = ""
+    
     if match_data is not None:
         user_message = f"Voici les informations du match qui va commencer d'ici quelques minutes : {match_data}"
+    else:
+        user_message = "Aucune information sur le match n'est disponible pour le moment."
+
     if predictions:
-        user_message += f"Prédictions de l'issue du match :  {predictions['winner']['name']} (Comment: {predictions['winner']['comment']})"
+        user_message += f"\nPrédictions de l'issue du match : {predictions['winner']['name']} (Comment: {predictions['winner']['comment']})"
+
     system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. Si et uniquement si je te fournis ces informations : fournis-moi une analyse concise des compositions avec des émojis pour rendre la présentation attrayante et en commentant les formations de début de match et les prédictions."
+    
     data = {
         "model": GPT_MODEL_NAME,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
