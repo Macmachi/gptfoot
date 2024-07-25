@@ -45,4 +45,4 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 Attribution-NonCommercial 4.0 International (https://creativecommons.org/licenses/by-nc/4.0/legalcode) 
 
 ## ✍️ Author: 
-Arnaud R.
+rymentz.com
