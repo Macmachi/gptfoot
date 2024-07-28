@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.2.4
+# VERSION : v2.2.5
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -629,45 +629,45 @@ async def check_events(fixture_id):
                             # await asyncio.sleep(300)
                             
 
-                    # Ajout d'une boucle pour vérifier le statut du match après la pause
-                    while True:
-                        log_message(f"On vérifie si le match a repris (statut actuel : {match_status})")
-                        events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
-                        log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n match_data : (pas log)\n")
+                        # Ajout d'une boucle pour vérifier le statut du match après la pause
+                        while True:
+                            log_message(f"On vérifie si le match a repris (statut actuel : {match_status})")
+                            events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
+                            log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n match_data : (pas log)\n")
 
-                        if match_status != 'HT':
-                            log_message(f"Le match a repris (statut actuel : {match_status}), continuation de l'execution du code (check_events)")
-                            if events is not None:
-                                log_message("Réinitialisation des événements à None après la mi-temps pour éviter d'être renvoyé car on recommence la deuxième mi-temps à la 46ème car on vérifie : if events is None!\n")
-                                events = None
-                                # Réinitialiser le compteur pour les futures détections HT
-                                ht_counter = 0  
-                            break
+                            if match_status != 'HT':
+                                log_message(f"Le match a repris (statut actuel : {match_status}), continuation de l'execution du code (check_events)")
+                                if events is not None:
+                                    log_message("Réinitialisation des événements à None après la mi-temps pour éviter d'être renvoyé car on recommence la deuxième mi-temps à la 46ème car on vérifie : if events is None!\n")
+                                    events = None
+                                    # Réinitialiser le compteur pour les futures détections HT
+                                    ht_counter = 0  
+                                break
 
-                        # Attendre un certain temps avant de vérifier à nouveau le statut du match
-                        await asyncio.sleep(15)
+                            # Attendre un certain temps avant de vérifier à nouveau le statut du match
+                            await asyncio.sleep(15)
 
-                # Pause de 13 minutes (780 secondes) si le statut du match est 'HT' (mi-temps) afin de gagner des calls API attention le fait aussi si prolongation donc il y aura un léger décalage comme une HT de prolongation est de 5 minutes !  
-                if not IS_PAID_API:
-                    log_message(f"mi-temps détectée - mise en pause de l'execution du code pour 780 secondes")
-                    #14min*60=840 secondes
-                    await asyncio.sleep(780)
+                    # Pause de 13 minutes (780 secondes) si le statut du match est 'HT' (mi-temps) afin de gagner des calls API attention le fait aussi si prolongation donc il y aura un léger décalage comme une HT de prolongation est de 5 minutes !  
+                    if not IS_PAID_API:
+                        log_message(f"mi-temps détectée - mise en pause de l'execution du code pour 780 secondes")
+                        #14min*60=840 secondes
+                        await asyncio.sleep(780)
 
-                    # Ajout d'une boucle pour vérifier le statut du match après la pause
-                    while True:
-                        log_message(f"On vérifie si le match a repris (statut actuel : {match_status})")
-                        events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
-                        log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n match_data : (pas log)\n")
+                        # Ajout d'une boucle pour vérifier le statut du match après la pause
+                        while True:
+                            log_message(f"On vérifie si le match a repris (statut actuel : {match_status})")
+                            events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
+                            log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n match_data : (pas log)\n")
 
-                        if match_status != 'HT':
-                            log_message(f"Le match a repris (statut actuel : {match_status}), continuation de l'execution du code (check_events)")
-                            if events is not None:
-                                log_message("Réinitialisation des événements à None après la mi-temps pour éviter d'être renvoyé car on recommence la deuxième mi-temps à la 46ème car on vérifie : if events is None!\n")
-                                events = None
-                            break
+                            if match_status != 'HT':
+                                log_message(f"Le match a repris (statut actuel : {match_status}), continuation de l'execution du code (check_events)")
+                                if events is not None:
+                                    log_message("Réinitialisation des événements à None après la mi-temps pour éviter d'être renvoyé car on recommence la deuxième mi-temps à la 46ème car on vérifie : if events is None!\n")
+                                    events = None
+                                break
 
-                        # Attendre un certain temps avant de vérifier à nouveau le statut du match
-                        await asyncio.sleep(120)
+                            # Attendre un certain temps avant de vérifier à nouveau le statut du match
+                            await asyncio.sleep(120)
 
             if match_status == 'P':
                 if not penalty_message_sent:
