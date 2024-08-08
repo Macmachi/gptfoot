@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.2.5
+# VERSION : v2.2.6
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
