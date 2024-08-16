@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.2.6
+# VERSION : v2.2.7
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -598,7 +598,7 @@ async def check_events(fixture_id):
                 # Pour API gratuite
                 # Utilisez current_league_id pour définir un intervalle différent selon l'id de la ligue
                 # 90 est le nombre d'appel max d'appel à l'api pour cette fonction en fonction du temps de match estimé, on laisse une marge car le nombre de call est de 100 maximum
-                if current_league_id == 3:
+                if current_league_id == 848:
                     total_duree_championnat = 5 + 45 + 10 + 45 + 10 + 30
                     interval = (total_duree_championnat * 60) / 90
                 elif current_league_id == 207:
@@ -1232,7 +1232,7 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
     if predictions:
         user_message += f"\nPrédictions de l'issue du match : {predictions['winner']['name']} (Comment: {predictions['winner']['comment']})"
 
-    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. Si et uniquement si je te fournis ces informations : fournis-moi une analyse concise des compositions avec des émojis pour rendre la présentation attrayante et en commentant les formations de début de match et les prédictions."
+    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football. Si et uniquement si je te fournis ces informations : fournis-moi une analyse de 270 mots maximum des compositions avec des émojis pour rendre la présentation attrayante et en commentant les formations de début de match et les prédictions."
     
     data = {
         "model": GPT_MODEL_NAME,
