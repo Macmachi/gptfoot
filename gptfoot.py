@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.2.7
+# VERSION : v2.2.8
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -586,6 +586,11 @@ async def check_events(fixture_id):
                     'home': match_data['goals']['home'],
                     'away': match_data['goals']['away']
                 }
+                
+                if new_score != current_score:
+                    log_message(f"Mise à jour du score après les événements VAR : {current_score} -> {new_score}")
+                    previous_score = current_score.copy()
+                    current_score = new_score.copy()
             else:
                 log_message(f"Pas de match_data disponible (none)\n")
 
@@ -850,7 +855,29 @@ async def check_events(fixture_id):
                                 if goal_elapsed_time < current_elapsed_time + allowed_difference:
                                     log_message(f"[ATTENTION] L'event goal a été enregistré mais n'a pas été a été détecté dans un interval de 10 minutes par rapport au temps actuel du match (car trop de temps a passé!)")
                                     sent_events.add(event_key)
-                        
+
+                    # Gestion des buts annulés par le VAR
+                    if event['type'] == "Var" and "Goal Disallowed" in event['detail']:
+                        log_message("But annulé détecté par le VAR")
+                        # Identifier l'équipe affectée
+                        team = event['team']
+                        # Mettre à jour le score
+                        new_score = {
+                            'home': match_data['goals']['home'],
+                            'away': match_data['goals']['away']
+                        }
+                        # Vérifier si le score a diminué
+                        if new_score['home'] < current_score['home'] or new_score['away'] < current_score['away']:
+                            await send_goal_cancelled_message(current_score, new_score)
+                            # Mettre à jour les scores
+                            previous_score = current_score.copy()
+                            current_score = new_score.copy()
+                        else:
+                            log_message("Le score n'a pas changé après l'annulation du but")
+                        # Enregistrer l'événement pour éviter de le traiter plusieurs fois
+                        sent_events.add(event_key)
+                        continue
+
                     # Traiter un penalty manqué
                     if event['type'] == 'Goal' and event['detail'] == 'Missed Penalty':
                         last_missed_penalty_time = event['time']['elapsed']
@@ -1105,9 +1132,7 @@ async def updated_score(match_data):
 # Envoie un message si un but est annulé
 async def send_goal_cancelled_message(previous_score, current_score):
     log_message("send_goal_cancelled_message() appelée.")
-    message = f"🤖 : ❌ But annulé !\n"
-    message += f"Score précédent: {previous_score['home']} - {previous_score['away']}\n"
-    message += f"Score actuel: {current_score['home']} - {current_score['away']}\n"
+    message = f"❌ But annulé ! Le score revient à {current_score['home']} - {current_score['away']}."
     await send_message_to_all_chats(message)
 
 # Envoie un message aux utilisateurs pour informer d'un carton rouge lors du match en cours, y compris les informations sur le joueur et l'équipe.
