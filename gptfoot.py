@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.2.8
+# VERSION : v2.2.9
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -809,7 +809,7 @@ async def check_events(fixture_id):
                                     # On pourrait envoyer l'événement goal avant cette condition pour avoir un bot plus réactif MAIS les données envoyées soient corrigées ou incomplètes (joueur qui a marqué, ses statistiques, détail du goal ou annulation du goal)
                                     # Cette nouvelle condition avec l'ajout de is_first_event permet de détecter et d'envoyer le message pour le premier but du match,
                                     #  même si new_score est encore égal à current_score (ce qui peut arriver si le premier but est détecté avant que new_score ne soit mis à jour).  
-                                    if is_first_event or new_score != current_score:
+                                    if is_first_event or new_score != previous_score:
                                         log_message(f"Premier événement ou nouveau score détecté")
                                         # Ajout de la logique pour vérifier une augmentation significative du score entre deux vérifications (ex : on passe de 0-2 à 0-4) afin d'éviter d'envoyer le score à ce moment mais à la sortie de la boucle dans un nouveau message ! 
                                         significant_increase_in_score = False
