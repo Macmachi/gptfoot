@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.2.9
+# VERSION : v2.3.0
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -576,6 +576,8 @@ async def check_events(fixture_id):
     previous_score = {'home': 0, 'away': 0}
     score_updated = False
     is_first_event = True
+    # Nouvelle liste pour stocker temporairement les événements de but
+    goal_events = [] 
 
     while True:
         try:
@@ -763,98 +765,79 @@ async def check_events(fixture_id):
                     log_message(f"type == Goal")   
                     log_message(f"Données de score récupéré dans match_data pour la variable new_score : {new_score}")
                     log_message(f"Previous score : {previous_score}")
-
                     log_message(f"Contenu de l'event de type goal :\n {event}\n\n")
-                
+
                     # On vérifie qu'il n'y pas eu de pénalté manqué 
                     if event['detail'] != 'Missed Penalty':
                         log_message(f"Not Missed Penalty")
                         player = event['player']
                         team = event['team']   
-                        # Récupérez les statistiques du joueur
-                        player_id = player['id']
-                        #log_message(f"match_data['players']: {match_data['players']}")
-                        player_statistics = None
-                        for team_data in match_data['players']:
-                            for player_stats in team_data['players']:
-                                #log_message(f"for player_stats : {player_stats}\n")
-                                if 'player' in player_stats and player_stats['player']['id'] == player_id:
-                                    player_statistics = player_stats['statistics']
-                                    #log_message(f"player_statistics : {player_statistics}\n")
+                        current_elapsed_time = elapsed_time
+                        goal_elapsed_time = event['time']['elapsed']
+                        allowed_difference = -10 if IS_PAID_API else -10
+
+                        # Créer un dictionnaire avec toutes les informations du but
+                        goal_info = {
+                            'player': player,
+                            'team': team,
+                            'event': event,
+                            'elapsed_time': goal_elapsed_time,
+                            'event_key': event_key,
+                            'player_statistics': None
+                        }
+
+                        # Récupérer les statistiques du joueur si disponibles
+                        if player is not None and player.get('id'):
+                            player_id = player['id']
+                            for team_data in match_data['players']:
+                                for player_stats in team_data['players']:
+                                    if 'player' in player_stats and player_stats['player']['id'] == player_id:
+                                        goal_info['player_statistics'] = player_stats['statistics']
+                                        break
+                                if goal_info['player_statistics']:
                                     break
-                            if player_statistics:
-                                break
-                        #log_message(f"player value : {player}")
-                        # Véfirier également que l'ID et le nom du joueur ne sont pas None. 
-                        if player is not None and player['id'] is not None and player['name'] is not None:
-                            log_message(f"player value is not none")
-                            # Vérifiez si l'événement de but est dans les 10 dernières minutes (10 minutes car il faut tenir compte des pauses surestimées lors des prolongations et on considère 10 minutes comme acceptable pour avoir des corrections d'événements)
-                            # Attention des événements de la fin de la première mi-temps non envoyés mais pris en compte par le script comme une correction pourrait être envoyé au début de la deuxième mi-temps si un événement se passe rapidement à la reprise surtout avec l'api payante.
-                            current_elapsed_time = elapsed_time
-                            goal_elapsed_time = event['time']['elapsed']
-                            # Avec l'api payante comme on rafraichit plus souvent aussi on peut légèrement réduire l'intervall de vérification maximum afin de réduire les risque que les corrections de goal soient envoyées
-                            if IS_PAID_API:
-                                allowed_difference = -10
+
+                        # Vérifier si le but est récent et valide
+                        if (player is not None and player.get('id') and player.get('name') and
+                            goal_elapsed_time is not None and current_elapsed_time is not None and
+                            goal_elapsed_time >= current_elapsed_time + allowed_difference):
+
+                            log_message(f"L'événement de goal a été détecté dans un interval de 10 minutes")
+
+                            if is_first_event or new_score != previous_score:
+                                # Vérifier l'augmentation significative du score
+                                significant_increase_in_score = False
+                                if team['id'] == match_data['teams']['home']['id'] and new_score['home'] - current_score['home'] > 1:
+                                    significant_increase_in_score = True
+                                elif team['id'] == match_data['teams']['away']['id'] and new_score['away'] - current_score['away'] > 1:
+                                    significant_increase_in_score = True
+                                elif (new_score['home'] - current_score['home'] >= 1 and 
+                                    new_score['away'] - current_score['away'] >= 1):
+                                    significant_increase_in_score = True
+
+                                goal_info['significant_increase'] = significant_increase_in_score
+                                goal_events.append(goal_info)  # Ajouter le but à la liste
+                                score_updated = True
+                                is_first_event = False
+
+                            elif IS_PAID_API and match_status == 'P':
+                                await send_shootout_goal_message(player, team, 
+                                    goal_info['player_statistics'] if goal_info['player_statistics'] else [], 
+                                    event)
+                                sent_events.add(event_key)
+                                score_updated = False
                             else:
-                                allowed_difference = -10
-                            log_message(f"if {goal_elapsed_time} >= {current_elapsed_time} + {allowed_difference}")
+                                log_message(f"Le score n'a pas été modifié car l'API ne l'a pas mis à jour")
+                                log_message(f"[EN ATTENTE] informations non envoyées :\n Goal : {player}, {team}, "
+                                        f"{goal_info['player_statistics'] if goal_info['player_statistics'] else []}, "
+                                        f"{goal_elapsed_time},{match_data['teams']['home']['name']} "
+                                        f"{match_data['goals']['home']} - {match_data['goals']['away']} "
+                                        f"{match_data['teams']['away']['name']}")
 
-                            if goal_elapsed_time is not None and current_elapsed_time is not None:
-                                log_message(f"goal_elapsed_time et current_elapsed_time ne sont pas égals à none!") 
-                                
-                                # Permet d'éviter qu'on rentre dans une modification d'un goal marqué trop tard ce qui pourrait apporter de la confusion comme il serait considéré comme un nouveau but et envoyé longtemps après
-                                if goal_elapsed_time >= current_elapsed_time + allowed_difference:
-    
-                                    log_message(f"L'événement de goal a été détecté dans un interval de 10 minutes par rapport au temps actuel du match")    
-                                    # On pourrait envoyer l'événement goal avant cette condition pour avoir un bot plus réactif MAIS les données envoyées soient corrigées ou incomplètes (joueur qui a marqué, ses statistiques, détail du goal ou annulation du goal)
-                                    # Cette nouvelle condition avec l'ajout de is_first_event permet de détecter et d'envoyer le message pour le premier but du match,
-                                    #  même si new_score est encore égal à current_score (ce qui peut arriver si le premier but est détecté avant que new_score ne soit mis à jour).  
-                                    if is_first_event or new_score != previous_score:
-                                        log_message(f"Premier événement ou nouveau score détecté")
-                                        # Ajout de la logique pour vérifier une augmentation significative du score entre deux vérifications (ex : on passe de 0-2 à 0-4) afin d'éviter d'envoyer le score à ce moment mais à la sortie de la boucle dans un nouveau message ! 
-                                        significant_increase_in_score = False
-                                        # Si l'équipe à domicile a marqué plus d'un but
-                                        if team['id'] == match_data['teams']['home']['id'] and new_score['home'] - current_score['home'] > 1:
-                                            significant_increase_in_score = True
-                                        # Si l'équipe à l'extérieur a marqué plus d'un but    
-                                        elif team['id'] == match_data['teams']['away']['id'] and new_score['away'] - current_score['away'] > 1:
-                                            significant_increase_in_score = True
-                                        # Si chaque équipe a marqué au moins un but par rapport au score précédent
-                                        elif (new_score['home'] - current_score['home'] >= 1) and (new_score['away'] - current_score['away'] >= 1):
-                                            significant_increase_in_score = True    
-                                
-                                        # Si augmentation significative, envoyez un message spécial
-                                        if significant_increase_in_score:
-                                            await send_goal_message_significant_increase_in_score(player, team, player_statistics if player_statistics else [], event['time']['elapsed'], match_data, event)
-                                            log_message(f"event_key enregistrée : {event_key}")
-                                            sent_events.add(event_key)
-                                            # On mettra a jour le score à la sortie de la boucle for event in events: car il peut avoir plusieurs événements à véfirier (et pas forcément des buts) dans un itération avant de mettre à jour le score comme une correction d'un but qui empêcherait de repasser dans if new_score != current_score: si le score était mis à jour là !
-                                            score_updated = True  
-
-                                        # Sinon message normal
-                                        if not significant_increase_in_score:
-                                            await send_goal_message(player, team, player_statistics if player_statistics else [], event['time']['elapsed'], match_data, event)
-                                            log_message(f"event_key enregistrée : {event_key}")
-                                            sent_events.add(event_key)
-                                            # On mettra a jour le score à la sortie de la boucle for event in events: car il peut avoir plusieurs événements à véfirier (et pas forcément des buts) dans un itération avant de mettre à jour le score comme une correction d'un but qui empêcherait de repasser dans if new_score != current_score: si le score était mis à jour là !
-                                            score_updated = True
-                                            is_first_event = False  
-                                    else:
-                                        log_message(f"new_score == current_score")
-                                        # Car le score n'est plus mis à jour de la même façon pendant les tirs au penaltys donc on rentre normalement dans cette condition si on utilise l'api payante uniquement !
-                                        if IS_PAID_API and match_status == 'P':
-                                            await send_shootout_goal_message(player, team, player_statistics if player_statistics else [], event)
-                                            log_message(f"event_key enregistrée : {event_key}")
-                                            sent_events.add(event_key)
-                                            # On ne met pas le score à jour car cela est géré de façon différente lors des tirs aux buts
-                                            score_updated = False  
-                                        else:
-                                            log_message(f"Le score n'a pas été modifié car l'API ne l'a pas mis à jour soit car retard, soit car modification du temps de l'événement d'un goal")
-                                            log_message(f"[EN ATTENTE] informations non envoyées :\n Goal : {player}, {team}, {player_statistics if player_statistics else []}, {event['time']['elapsed']},{match_data['teams']['home']['name']} {match_data['goals']['home']} - {match_data['goals']['away']} {match_data['teams']['away']['name']}")
-                                # Evite de bloquer les prochains goals si un goal est trop tardivement validé pour être envoyé!
-                                if goal_elapsed_time < current_elapsed_time + allowed_difference:
-                                    log_message(f"[ATTENTION] L'event goal a été enregistré mais n'a pas été a été détecté dans un interval de 10 minutes par rapport au temps actuel du match (car trop de temps a passé!)")
-                                    sent_events.add(event_key)
+                        # Gérer les buts trop anciens
+                        elif goal_elapsed_time < current_elapsed_time + allowed_difference:
+                            log_message(f"[ATTENTION] L'event goal a été enregistré mais est trop ancien")
+                            sent_events.add(event_key)
 
                     # Gestion des buts annulés par le VAR
                     if event['type'] == "Var" and "Goal Disallowed" in event['detail']:
@@ -915,6 +898,34 @@ async def check_events(fixture_id):
                         continue
             
             #Fin de la boucle for event in events:
+
+            # Traiter tous les buts accumulés
+            if goal_events:
+                for goal_info in goal_events:
+                    if goal_info['event_key'] not in sent_events:
+                        if goal_info['significant_increase']:
+                            await send_goal_message_significant_increase_in_score(
+                                goal_info['player'],
+                                goal_info['team'],
+                                goal_info['player_statistics'] if goal_info['player_statistics'] else [],
+                                goal_info['elapsed_time'],
+                                match_data,
+                                goal_info['event']
+                            )
+                        else:
+                            await send_goal_message(
+                                goal_info['player'],
+                                goal_info['team'],
+                                goal_info['player_statistics'] if goal_info['player_statistics'] else [],
+                                goal_info['elapsed_time'],
+                                match_data,
+                                goal_info['event']
+                            )
+                        sent_events.add(goal_info['event_key'])
+                        await asyncio.sleep(1)  # Petit délai entre les messages
+                
+                goal_events.clear()  # Vider la liste après traitement
+
             if score_updated:
                 log_message(f"score_updated is true")
                 # Permet d'envoyer le score actualisé si plusieurs goal ont été marqué entre deux vérifications et qui eux seront envoyé sans le score !
@@ -1006,7 +1017,8 @@ async def send_message_to_all_chats(message, language=LANGUAGE):
             except NetworkError as e:
                 log_message(f"Erreur lors de l'envoi du message à Telegram (NetworkError) : {e}")
             except exceptions.TelegramAPIError as e:
-                log_message(f"Erreur lors de l'envoi du message à Telegram TelegramAPIError : {e}")    
+                if "user is deactivated" not in str(e).lower():
+                    log_message(f"Erreur lors de l'envoi du message à Telegram : {e}")
             except Exception as e:
                 log_message(f"Erreur inattendue lors de l'envoi du message à Telegram : {e}")
 
