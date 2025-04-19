@@ -21,6 +21,7 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 ## 🌟 Potential future updates
 * ✅ [DONE] Change of OpenAI's model to use GPT-4o
 * ✅ [DONE] Handle the cancellation of goals by VAR.
+* [Low priority] Allow API calls to retrieve the standings once per day, and on match days 1 hour after the match if API calls remain available. Enable users to check standings via Telegram and Discord commands (stored locally to avoid excessive API calls which are extremely limited). Incorporate standings data in pre-match and post-match analysis for both free and paid API versions, referencing locally stored standings without making additional API calls. Consider whether to implement this for national championships only or for all competitions. Review the API endpoint (what data it returns).
 * [Low priority] Make the bot more flexible by adding more events such as yellow cards and player changes, with the option of enabling or disabling events in config.ini. The idea behind the bot was to send only essential messages, so this is not a high priority.
 * [Low priority] Implement a better scoring management for penalty shootouts, as they are not handled the same way as regular goals
 * [Low priority] Improved handling of season ID retrieval (currently requires manual adjustment in config.ini at the beginning of each season)
