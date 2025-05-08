@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.3.0
+# VERSION : v2.3.1
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
 import datetime
-from aiogram import Bot, Dispatcher, types, exceptions
-from aiogram.utils.exceptions import BadRequest, ChatNotFound
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError, TelegramNetworkError
 from aiohttp.client_exceptions import ClientConnectorError
-from aiogram.utils.exceptions import NetworkError
 import discord
 from discord.ext import commands, tasks
 import json
@@ -18,7 +18,6 @@ import aiohttp
 import pytz
 import httpx
 import configparser
-import os
 import time
 import atexit
 import signal
@@ -332,11 +331,8 @@ async def wait_for_match_start(fixture_id):
 
     while True:
         match_status, match_date, elapsed_time, match_data = await get_check_match_status(fixture_id)
-        #log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time} et match_data (pas log)\n")
-        #log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time}, match_data: {match_data}")  
 
         if match_status and elapsed_time is not None:
-            #log_message(f"if match_status")  
             # Sortir de la boucle si le match commence, ou est annulé pour X raisons
             if elapsed_time > 0 or match_status in ('PST', 'CANC', 'ABD', 'AWD', 'WO'):
                 log_message(f"le match a commencé sorti de la boucle wait_for_match_start")      
@@ -397,17 +393,17 @@ async def get_check_match_status(fixture_id):
         elapsed_time = fixture['fixture']['status']['elapsed']
         # Récupérez match_data à partir de la variable fixture
         match_data = {
-            "teams": {
-                "home": {
-                    "name": fixture['teams']['home']['name']
-                },
-                "away": {
-                    "name": fixture['teams']['away']['name']
+                    "teams": {
+                        "home": {
+                            "name": fixture['teams']['home']['name']
+                        },
+                        "away": {
+                            "name": fixture['teams']['away']['name']
+                        }
+                    },
+                    "lineups": {}
                 }
-            },
-            "lineups": {}
-        }
-        
+                
         if 'lineups' in fixture and len(fixture['lineups']) >= 2:
             home_lineup = fixture['lineups'][0]
             away_lineup = fixture['lineups'][1]
@@ -1007,16 +1003,16 @@ async def send_message_to_all_chats(message, language=LANGUAGE):
         for chat_id in chat_ids:
             try:
                 await bot.send_message(chat_id=chat_id, text=message)
-            except exceptions.BotBlocked:
+            except TelegramForbiddenError:
                 # Évite de log si le bot a été bloqué par des utilisateurs
                 continue
-            except BadRequest as e:
+            except TelegramBadRequest as e:
                 log_message(f"Erreur lors de l'envoi du message à Telegram (BadRequest) : {e}")
             except ClientConnectorError as e:
                 log_message(f"Erreur lors de l'envoi du message à Telegram (ClientConnectorError) : {e}")
-            except NetworkError as e:
+            except TelegramNetworkError as e:
                 log_message(f"Erreur lors de l'envoi du message à Telegram (NetworkError) : {e}")
-            except exceptions.TelegramAPIError as e:
+            except TelegramAPIError as e:
                 if "user is deactivated" not in str(e).lower():
                     log_message(f"Erreur lors de l'envoi du message à Telegram : {e}")
             except Exception as e:
@@ -1380,10 +1376,12 @@ async def main():
             log_message("Bot telegram lancé")
             global bot
             bot = Bot(token=TOKEN_TELEGRAM)
-            dp = Dispatcher(bot)
+            dp = Dispatcher()
             initialize_chat_ids_file()
-            dp.register_message_handler(on_start, commands=["start"])
-            asyncio.create_task(dp.start_polling())
+            dp.message.register(on_start, Command("start"))
+            
+            # Démarrer le bot Telegram
+            await dp.start_polling(bot)
 
         if USE_DISCORD:
             log_message("Bot Discord lancé")
@@ -1405,4 +1403,4 @@ async def main():
         await asyncio.sleep(10)  
 
 if __name__ == "__main__":
-    asyncio.run(main())      
+    asyncio.run(main())
