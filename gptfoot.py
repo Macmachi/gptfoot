@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.3.1
+# VERSION : v2.3.2
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -153,7 +153,10 @@ async def on_command_error(ctx, error):
 
 @tasks.loop(count=1)
 async def run_discord_bot(token):
-    await bot_discord.start(token)
+    try:
+        await bot_discord.start(token)
+    except Exception as e:
+        log_message(f"Erreur lors du démarrage du bot Discord: {e}")
 
 ### FIN DE GESTION DU BOT DISCORD
 ### DEBUT DE GESTION DU BOT TELEGRAM
@@ -779,7 +782,8 @@ async def check_events(fixture_id):
                             'event': event,
                             'elapsed_time': goal_elapsed_time,
                             'event_key': event_key,
-                            'player_statistics': None
+                            'player_statistics': None,
+                            'significant_increase': False
                         }
 
                         # Récupérer les statistiques du joueur si disponibles
@@ -925,7 +929,7 @@ async def check_events(fixture_id):
             if score_updated:
                 log_message(f"score_updated is true")
                 # Permet d'envoyer le score actualisé si plusieurs goal ont été marqué entre deux vérifications et qui eux seront envoyé sans le score !
-                if significant_increase_in_score:
+                if 'significant_increase_in_score' in locals() and significant_increase_in_score:
                     await updated_score(match_data)
                     previous_score = current_score.copy()
                     log_message(f"previous_score mis à jour avec current_score.copy() pas encore mis à jour avec new_score : {previous_score}")
@@ -933,7 +937,7 @@ async def check_events(fixture_id):
                     log_message(f"current_score mise à jour avec new_score.copy() : {current_score}")
                     score_updated = False 
 
-                if not significant_increase_in_score:
+                if 'significant_increase_in_score' not in locals() or not significant_increase_in_score:
                     previous_score = current_score.copy()
                     log_message(f"previous_score mis à jour avec current_score.copy() pas encore mis à jour avec new_score : {previous_score}")
                     current_score = new_score.copy()
@@ -996,55 +1000,67 @@ async def send_message_to_all_chats(message, language=LANGUAGE):
     # Pour Telegram:
     if USE_TELEGRAM:
         log_message("Lecture des IDs de chat enregistrés pour Telegram...")
-        with open("telegram_chat_ids.json", "r") as file:
-            chat_ids = json.load(file)
-            log_message(f"Chat IDs chargés depuis le fichier telegram_chat_ids.json : {chat_ids}")
-        
-        for chat_id in chat_ids:
-            try:
-                await bot.send_message(chat_id=chat_id, text=message)
-            except TelegramForbiddenError:
-                # Évite de log si le bot a été bloqué par des utilisateurs
-                continue
-            except TelegramBadRequest as e:
-                log_message(f"Erreur lors de l'envoi du message à Telegram (BadRequest) : {e}")
-            except ClientConnectorError as e:
-                log_message(f"Erreur lors de l'envoi du message à Telegram (ClientConnectorError) : {e}")
-            except TelegramNetworkError as e:
-                log_message(f"Erreur lors de l'envoi du message à Telegram (NetworkError) : {e}")
-            except TelegramAPIError as e:
-                if "user is deactivated" not in str(e).lower():
-                    log_message(f"Erreur lors de l'envoi du message à Telegram : {e}")
-            except Exception as e:
-                log_message(f"Erreur inattendue lors de l'envoi du message à Telegram : {e}")
+        try:
+            with open("telegram_chat_ids.json", "r") as file:
+                chat_ids = json.load(file)
+                log_message(f"Chat IDs chargés depuis le fichier telegram_chat_ids.json : {chat_ids}")
+            
+            for chat_id in chat_ids:
+                try:
+                    await bot.send_message(chat_id=chat_id, text=message)
+                except TelegramForbiddenError:
+                    # Évite de log si le bot a été bloqué par des utilisateurs
+                    continue
+                except TelegramBadRequest as e:
+                    log_message(f"Erreur lors de l'envoi du message à Telegram (BadRequest) : {e}")
+                except ClientConnectorError as e:
+                    log_message(f"Erreur lors de l'envoi du message à Telegram (ClientConnectorError) : {e}")
+                except TelegramNetworkError as e:
+                    log_message(f"Erreur lors de l'envoi du message à Telegram (NetworkError) : {e}")
+                except TelegramAPIError as e:
+                    if "user is deactivated" not in str(e).lower():
+                        log_message(f"Erreur lors de l'envoi du message à Telegram : {e}")
+                except Exception as e:
+                    log_message(f"Erreur inattendue lors de l'envoi du message à Telegram : {e}")
+        except FileNotFoundError:
+            log_message("Fichier telegram_chat_ids.json non trouvé")
+        except json.JSONDecodeError:
+            log_message("Erreur de décodage JSON dans telegram_chat_ids.json")
+        except Exception as e:
+            log_message(f"Erreur lors de la lecture des IDs Telegram: {e}")
 
     # Pour Discord:
     if USE_DISCORD:
         log_message("Lecture des IDs de channel pour Discord...")
 
         # Utilisez le chemin correct pour le fichier discord_channels.json
-        if os.path.exists(discord_channels_path):
-            with open(discord_channels_path, "r") as file:
-                channels = json.load(file)
-            
-            for channel_id in channels:
-                channel = bot_discord.get_channel(channel_id)
-                if channel:
-                    try:
-                        await channel.send(message)
-                    except discord.Forbidden as e:
-                        # Évite de log si le bot a été bloqué par des utilisateurs, concerne aussi d'autres problèmes de permission...
-                        continue 
-                    except discord.NotFound as e:
-                        log_message(f"Erreur: Canal Discord {channel_id} non trouvé : {e}")
-                    except discord.HTTPException as e:
-                        log_message(f"Erreur HTTP lors de l'envoi du message au canal Discord {channel_id}: {e}")
-                    except discord.InvalidArgument as e:
-                        log_message(f"Erreur: Argument invalide pour le canal Discord {channel_id}: {e}")
-                    except Exception as e:
-                        log_message(f"Erreur inattendue lors de l'envoi du message à Discord : {e}")
-        else:
-            log_message("Erreur: Le fichier discord_channels.json n'a pas été trouvé.")
+        try:
+            if os.path.exists(discord_channels_path):
+                with open(discord_channels_path, "r") as file:
+                    channels = json.load(file)
+                
+                for channel_id in channels:
+                    channel = bot_discord.get_channel(channel_id)
+                    if channel:
+                        try:
+                            await channel.send(message)
+                        except discord.Forbidden as e:
+                            # Évite de log si le bot a été bloqué par des utilisateurs, concerne aussi d'autres problèmes de permission...
+                            continue 
+                        except discord.NotFound as e:
+                            log_message(f"Erreur: Canal Discord {channel_id} non trouvé : {e}")
+                        except discord.HTTPException as e:
+                            log_message(f"Erreur HTTP lors de l'envoi du message au canal Discord {channel_id}: {e}")
+                        except discord.InvalidArgument as e:
+                            log_message(f"Erreur: Argument invalide pour le canal Discord {channel_id}: {e}")
+                        except Exception as e:
+                            log_message(f"Erreur inattendue lors de l'envoi du message à Discord : {e}")
+            else:
+                log_message("Erreur: Le fichier discord_channels.json n'a pas été trouvé.")
+        except json.JSONDecodeError:
+            log_message("Erreur de décodage JSON dans discord_channels.json")
+        except Exception as e:
+            log_message(f"Erreur lors de la lecture des IDs Discord: {e}")
 
 # Envoie un message lorsqu'un match est détecté le jour même 
 async def send_match_today_message(match_start_time, fixture_id, current_league_id, teams, league, round_info, venue, city):
@@ -1380,8 +1396,8 @@ async def main():
             initialize_chat_ids_file()
             dp.message.register(on_start, Command("start"))
             
-            # Démarrer le bot Telegram
-            await dp.start_polling(bot)
+            # Démarrer le bot Telegram en tâche de fond
+            asyncio.create_task(dp.start_polling(bot))
 
         if USE_DISCORD:
             log_message("Bot Discord lancé")
@@ -1390,12 +1406,12 @@ async def main():
 
         # Si au moins un des deux bots est activé, exécutez les tâches de vérification
         if USE_TELEGRAM or USE_DISCORD:
-            # Si on appel check_matches depuis cette fonction main et qu'un match est détecté alors à la fin du match check_match_periodically() n'est pas executé mais le sera le lendemain
+            # Check immediate puis vérification périodique
             asyncio.create_task(check_matches())
             asyncio.create_task(check_match_periodically())
 
     except Exception as e:
-        log_message(f"Erreur inattendue: {e}")     
+        log_message(f"Erreur inattendue dans main(): {e}")     
    
     # Boucle d'attente pour empêcher main() (donc le script) de se terminer
     while is_running:
