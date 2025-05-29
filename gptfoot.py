@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.3.2
+# VERSION : v2.3.3
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -604,7 +604,7 @@ async def check_events(fixture_id):
                 # Pour API gratuite
                 # Utilisez current_league_id pour définir un intervalle différent selon l'id de la ligue
                 # 90 est le nombre d'appel max d'appel à l'api pour cette fonction en fonction du temps de match estimé, on laisse une marge car le nombre de call est de 100 maximum
-                if current_league_id == 848:
+                if current_league_id == 2:
                     total_duree_championnat = 5 + 45 + 10 + 45 + 10 + 30
                     interval = (total_duree_championnat * 60) / 90
                 elif current_league_id == 207:
