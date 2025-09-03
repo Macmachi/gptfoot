@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot) 
-# VERSION : v2.3.3
+# VERSION : v2.3.4
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -582,7 +582,7 @@ async def check_events(fixture_id):
         try:
             events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
             # S'assurer que match_data n'est pas None avant d'en extraire 'goals'.
-            if match_data:
+            if match_data and match_data.get('goals'):
                 new_score = {
                     'home': match_data['goals']['home'],
                     'away': match_data['goals']['away']
@@ -593,9 +593,9 @@ async def check_events(fixture_id):
                     previous_score = current_score.copy()
                     current_score = new_score.copy()
             else:
-                log_message(f"Pas de match_data disponible (none)\n")
+                log_message(f"Pas de match_data ou de données de buts disponibles (none)\n")
+                new_score = current_score # Garder le score actuel si pas de nouvelles données
 
-            #log_message(f"Données récupérées de get_team_live_events dans check_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n score actuel : {new_score['home']} - {new_score['away']} \n match_data : (pas log)\n")
             # Calcul de l'intervalle optimisé selon api payante ou non 
             if IS_PAID_API:
                 interval = 15
@@ -789,55 +789,64 @@ async def check_events(fixture_id):
                         # Récupérer les statistiques du joueur si disponibles
                         if player is not None and player.get('id'):
                             player_id = player['id']
-                            for team_data in match_data['players']:
-                                for player_stats in team_data['players']:
-                                    if 'player' in player_stats and player_stats['player']['id'] == player_id:
-                                        goal_info['player_statistics'] = player_stats['statistics']
+                            if 'players' in match_data:
+                                for team_data in match_data['players']:
+                                    for player_stats in team_data['players']:
+                                        if 'player' in player_stats and player_stats['player']['id'] == player_id:
+                                            goal_info['player_statistics'] = player_stats['statistics']
+                                            break
+                                    if goal_info['player_statistics']:
                                         break
-                                if goal_info['player_statistics']:
-                                    break
+                        
+                        # --- DEBUT DE LA CORRECTION ---
+                        # On vérifie d'abord si on a un temps de match valide avant de faire des comparaisons
+                        if current_elapsed_time is not None:
+                            # Maintenant on peut faire les comparaisons en toute sécurité
+                            if (player is not None and player.get('id') and player.get('name') and
+                                goal_elapsed_time is not None and
+                                goal_elapsed_time >= current_elapsed_time + allowed_difference):
 
-                        # Vérifier si le but est récent et valide
-                        if (player is not None and player.get('id') and player.get('name') and
-                            goal_elapsed_time is not None and current_elapsed_time is not None and
-                            goal_elapsed_time >= current_elapsed_time + allowed_difference):
+                                log_message(f"L'événement de goal a été détecté dans un interval de 10 minutes")
 
-                            log_message(f"L'événement de goal a été détecté dans un interval de 10 minutes")
+                                if is_first_event or new_score != previous_score:
+                                    # Vérifier l'augmentation significative du score
+                                    significant_increase_in_score = False
+                                    if team['id'] == match_data['teams']['home']['id'] and new_score['home'] - current_score['home'] > 1:
+                                        significant_increase_in_score = True
+                                    elif team['id'] == match_data['teams']['away']['id'] and new_score['away'] - current_score['away'] > 1:
+                                        significant_increase_in_score = True
+                                    elif (new_score['home'] - current_score['home'] >= 1 and 
+                                        new_score['away'] - current_score['away'] >= 1):
+                                        significant_increase_in_score = True
 
-                            if is_first_event or new_score != previous_score:
-                                # Vérifier l'augmentation significative du score
-                                significant_increase_in_score = False
-                                if team['id'] == match_data['teams']['home']['id'] and new_score['home'] - current_score['home'] > 1:
-                                    significant_increase_in_score = True
-                                elif team['id'] == match_data['teams']['away']['id'] and new_score['away'] - current_score['away'] > 1:
-                                    significant_increase_in_score = True
-                                elif (new_score['home'] - current_score['home'] >= 1 and 
-                                    new_score['away'] - current_score['away'] >= 1):
-                                    significant_increase_in_score = True
+                                    goal_info['significant_increase'] = significant_increase_in_score
+                                    goal_events.append(goal_info)  # Ajouter le but à la liste
+                                    score_updated = True
+                                    is_first_event = False
 
-                                goal_info['significant_increase'] = significant_increase_in_score
-                                goal_events.append(goal_info)  # Ajouter le but à la liste
-                                score_updated = True
-                                is_first_event = False
+                                elif IS_PAID_API and match_status == 'P':
+                                    await send_shootout_goal_message(player, team, 
+                                        goal_info['player_statistics'] if goal_info['player_statistics'] else [], 
+                                        event)
+                                    sent_events.add(event_key)
+                                    score_updated = False
+                                else:
+                                    log_message(f"Le score n'a pas été modifié car l'API ne l'a pas mis à jour")
+                                    log_message(f"[EN ATTENTE] informations non envoyées :\n Goal : {player}, {team}, "
+                                            f"{goal_info['player_statistics'] if goal_info['player_statistics'] else []}, "
+                                            f"{goal_elapsed_time},{match_data['teams']['home']['name']} "
+                                            f"{match_data['goals']['home']} - {match_data['goals']['away']} "
+                                            f"{match_data['teams']['away']['name']}")
 
-                            elif IS_PAID_API and match_status == 'P':
-                                await send_shootout_goal_message(player, team, 
-                                    goal_info['player_statistics'] if goal_info['player_statistics'] else [], 
-                                    event)
+                            # Gérer les buts trop anciens
+                            elif goal_elapsed_time is not None and goal_elapsed_time < current_elapsed_time + allowed_difference:
+                                log_message(f"[ATTENTION] L'event goal (temps: {goal_elapsed_time}) a été enregistré mais est trop ancien par rapport au temps actuel ({current_elapsed_time}).")
                                 sent_events.add(event_key)
-                                score_updated = False
-                            else:
-                                log_message(f"Le score n'a pas été modifié car l'API ne l'a pas mis à jour")
-                                log_message(f"[EN ATTENTE] informations non envoyées :\n Goal : {player}, {team}, "
-                                        f"{goal_info['player_statistics'] if goal_info['player_statistics'] else []}, "
-                                        f"{goal_elapsed_time},{match_data['teams']['home']['name']} "
-                                        f"{match_data['goals']['home']} - {match_data['goals']['away']} "
-                                        f"{match_data['teams']['away']['name']}")
-
-                        # Gérer les buts trop anciens
-                        elif goal_elapsed_time < current_elapsed_time + allowed_difference:
-                            log_message(f"[ATTENTION] L'event goal a été enregistré mais est trop ancien")
+                        else:
+                            # Cas où current_elapsed_time est None (fin de match)
+                            log_message(f"[AVERTISSEMENT] Impossible de vérifier l'horodatage du but car le temps de match écoulé est None. L'événement est marqué comme traité pour éviter les doublons.")
                             sent_events.add(event_key)
+                        # --- FIN DE LA CORRECTION ---
 
                     # Gestion des buts annulés par le VAR
                     if event['type'] == "Var" and "Goal Disallowed" in event['detail']:
@@ -845,16 +854,16 @@ async def check_events(fixture_id):
                         # Identifier l'équipe affectée
                         team = event['team']
                         # Mettre à jour le score
-                        new_score = {
+                        new_score_var = {
                             'home': match_data['goals']['home'],
                             'away': match_data['goals']['away']
                         }
                         # Vérifier si le score a diminué
-                        if new_score['home'] < current_score['home'] or new_score['away'] < current_score['away']:
-                            await send_goal_cancelled_message(current_score, new_score)
+                        if new_score_var['home'] < current_score['home'] or new_score_var['away'] < current_score['away']:
+                            await send_goal_cancelled_message(current_score, new_score_var)
                             # Mettre à jour les scores
                             previous_score = current_score.copy()
-                            current_score = new_score.copy()
+                            current_score = new_score_var.copy()
                         else:
                             log_message("Le score n'a pas changé après l'annulation du but")
                         # Enregistrer l'événement pour éviter de le traiter plusieurs fois
@@ -952,7 +961,7 @@ async def check_events(fixture_id):
                 previous_score = current_score.copy()
 
             # Si le match est terminé ou s'est terminé en prolongation, envoyez le message de fin et arrêtez de vérifier les événements
-            if match_status == 'FT' or match_status == 'AET' or match_status == 'PEN':
+            if match_status in ['FT', 'AET', 'PEN']:
                 log_message(f"Le match est terminé, status : {match_status}\n")
 
                 # Avant le bloc de conditions
@@ -1353,16 +1362,17 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
     
     # Formater les événements du match
     formatted_events = ["📢 Événements du Match:"]
-    for event in events:
-        time_elapsed = event['time']['elapsed']
-        time_extra = event['time']['extra']
-        team_name = event['team']['name']
-        player_name = event['player']['name']
-        event_type = event['type']
-        event_detail = event['detail']
-        formatted_event = f"• À {time_elapsed}{'+' + str(time_extra) if time_extra else ''} min, {team_name} - {player_name} {event_detail} ({event_type})"
-        formatted_events.append(formatted_event)
-    user_message += '\n'.join(formatted_events)
+    if events:
+        for event in events:
+            time_elapsed = event['time']['elapsed']
+            time_extra = event['time']['extra']
+            team_name = event['team']['name']
+            player_name = event['player']['name']
+            event_type = event['type']
+            event_detail = event['detail']
+            formatted_event = f"• À {time_elapsed}{'+' + str(time_extra) if time_extra else ''} min, {team_name} - {player_name} {event_detail} ({event_type})"
+            formatted_events.append(formatted_event)
+        user_message += '\n'.join(formatted_events)
 
     # Traitement des match_statistics
     if len(match_statistics) >= 2 and 'statistics' in match_statistics[0] and 'statistics' in match_statistics[1]:
