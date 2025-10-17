@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.5.1
+# VERSION : v2.5.2
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -271,9 +271,8 @@ def clear_log():
         with open("gptfoot.log", "w", encoding='utf-8'):
             pass
         
-        # Réinitialiser le logger
-        global logger
-        logger = setup_logging()
+        # Réinitialiser le logger (pas besoin de global car logger est déjà module-level)
+        setup_logging()
         log_message("Fichier de log vidé pour nouveau match")
     except Exception as e:
         log_message(f"Erreur lors du vidage du log: {e}", "ERROR")
