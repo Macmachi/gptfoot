@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.5.2
+# VERSION : v2.5.3
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -1533,7 +1533,8 @@ async def send_message_to_all_chats(message, language=LANGUAGE):
             for chat_id in chat_ids:
                 try:
                     for part in message_parts:
-                        await bot.send_message(chat_id=chat_id, text=part)
+                        # Utiliser Markdown legacy pour compatibilité avec le formatage Discord
+                        await bot.send_message(chat_id=chat_id, text=part, parse_mode="Markdown")
                         await asyncio.sleep(0.5)  # Délai entre les messages pour éviter le rate limiting
                 except TelegramForbiddenError:
                     # Évite de log si le bot a été bloqué par des utilisateurs
@@ -1949,7 +1950,13 @@ async def call_chatgpt_api(data, max_retries=3):
 # Analyse pour l'heure de début du match
 async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_info, venue, city):
     log_message(f"Informations reçues par l'API : match_start_time={match_start_time}, teams={teams}, league={league}, round_info={round_info}, venue={venue}, city={city}")
-    user_message = (f"Les informations du match qui a lieu aujourd'hui sont les suivantes : \n"
+    
+    # Construire la saison complète (ex: "2025-2026" si SEASON_ID = "2026")
+    season_year = int(SEASON_ID)
+    current_season = f"{season_year - 1}-{season_year}"
+    
+    user_message = (f"SAISON ACTUELLE : {current_season}\n\n"
+                    f"Les informations du match qui a lieu aujourd'hui sont les suivantes : \n"
                     f"Ligue actuelle : {league}\n"
                     f"Tour : {round_info}\n"
                     f"Équipes du match : {teams['home']} contre {teams['away']}\n"
@@ -1958,11 +1965,14 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
                     f"L'heure actuelle est : {datetime.datetime.now()}\n"
                     f"Équipe analysée : {TEAM_NAME}")
     system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse de matchs de football. "
-                    f"Fais une présentation pertinente et contextualisée en français du match qui aura lieu aujourd'hui. "
-                    f"Inclus : l'importance du match dans la compétition, les enjeux pour {TEAM_NAME}, "
-                    f"les points clés à surveiller, et les défis tactiques attendus. "
+                    f"IMPORTANT : Nous sommes en saison {current_season}. "
+                    f"Tu dois te baser UNIQUEMENT sur les informations fournies dans le message utilisateur. "
+                    f"N'utilise JAMAIS tes connaissances sur les saisons précédentes (2024-2025 ou antérieures). "
+                    f"Fais une présentation simple et factuelle en français du match qui aura lieu aujourd'hui : "
+                    f"annonce les équipes qui s'affrontent, la compétition, le lieu et l'heure. "
+                    f"Reste général sans inventer de détails sur la forme des équipes ou les enjeux. "
                     f"Embellis la présentation avec des émojis pertinents. "
-                    f"Sois concis mais informatif.")
+                    f"Sois concis et informatif.")
     data = {
         "model": GPT_MODEL_NAME,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
@@ -1974,12 +1984,16 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
 async def call_chatgpt_api_compomatch(match_data, predictions=None):
     log_message(f"Informations reçues par l'API : match_data={match_data}, predictions={predictions}")
     
-    user_message = ""
+    # Construire la saison complète
+    season_year = int(SEASON_ID)
+    current_season = f"{season_year - 1}-{season_year}"
+    
+    user_message = f"SAISON ACTUELLE : {current_season}\n\n"
     
     if match_data is not None:
-        user_message = f"Voici les informations du match qui va commencer d'ici quelques minutes : {match_data}"
+        user_message += f"Voici les informations du match qui va commencer d'ici quelques minutes : {match_data}"
     else:
-        user_message = "Aucune information sur le match n'est disponible pour le moment."
+        user_message += "Aucune information sur le match n'est disponible pour le moment."
 
     if predictions:
         user_message += f"\nPrédictions de l'issue du match : {predictions['winner']['name']} (Comment: {predictions['winner']['comment']})"
@@ -1999,11 +2013,14 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
             user_message += f"Analyse: {last_match_analysis}"
 
     system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse tactique de matchs de football. "
+                    f"IMPORTANT : Nous sommes en saison {current_season}. "
+                    f"Tu dois te baser UNIQUEMENT sur les informations fournies (compositions, formations, prédictions si disponibles, contexte du dernier match). "
+                    f"N'utilise JAMAIS tes connaissances sur les saisons précédentes (2024-2025 ou antérieures). "
                     f"Fournis une analyse détaillée des compositions avec des émojis pour rendre la présentation attrayante. "
-                    f"Analyse : les formations de début de match, les joueurs clés de chaque équipe, "
-                    f"les forces et faiblesses tactiques, les points de confrontation clés, et les prédictions si disponibles. "
-                    f"Si disponible, utilise le contexte du dernier match pour enrichir ton analyse des tendances actuelles. "
-                    f"Sois détaillé et complet.")
+                    f"Analyse : les formations de début de match, les joueurs clés mentionnés dans les données, "
+                    f"les aspects tactiques visibles dans les formations, et les prédictions si disponibles. "
+                    f"Si le contexte du dernier match est fourni, utilise-le pour enrichir ton analyse. "
+                    f"Reste factuel et base-toi sur les données fournies. Sois détaillé et complet.")
     
     data = {
         "model": GPT_MODEL_NAME,
@@ -2070,6 +2087,10 @@ async def call_chatgpt_api_redmatch(player, team, elapsed_time, event):
 async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_score, away_score, away_team):
     log_message(f"Informations reçues par l'API : match_statistics={match_statistics}, events={events}")
     
+    # Construire la saison complète
+    season_year = int(SEASON_ID)
+    current_season = f"{season_year - 1}-{season_year}"
+    
     # Récupérer l'analyse pré-match et l'historique des 5 derniers matchs
     last_matches = get_last_n_matches(5)
     match_history_context = format_match_history_for_context(last_matches)
@@ -2082,7 +2103,8 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
             pre_match_analysis = ""
     
     # Score final
-    user_message = f"📊 Score Final:\n{home_team} {home_score} - {away_score} {away_team}\n\n"
+    user_message = f"SAISON ACTUELLE : {current_season}\n\n"
+    user_message += f"📊 Score Final:\n{home_team} {home_score} - {away_score} {away_team}\n\n"
     
     # Ajouter l'analyse pré-match pour contexte
     if pre_match_analysis:
@@ -2113,16 +2135,18 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
                 user_message += f"• {home_stat['type']}: {home_stat['value']} - {away_stat['value']}\n"
 
     system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse approfondie de matchs de football. "
-                    f"En utilisant le contexte pré-match, l'historique des 5 derniers matchs, le score final, "
-                    f"les événements et statistiques du match, donne une analyse très détaillée et contextualisée "
-                    f"de la prestation du {TEAM_NAME} pendant le match. "
+                    f"IMPORTANT : Nous sommes en saison {current_season}. "
+                    f"Tu dois te baser UNIQUEMENT sur les informations fournies : contexte pré-match, historique des matchs fourni, "
+                    f"score final, événements et statistiques du match. "
+                    f"N'utilise JAMAIS tes connaissances sur les saisons précédentes (2024-2025 ou antérieures). "
+                    f"Donne une analyse très détaillée et contextualisée de la prestation du {TEAM_NAME} pendant le match. "
                     f"Structure ton analyse ainsi : "
-                    f"1) Comparaison attentes pré-match vs résultat final, "
-                    f"2) Analyse tactique et technique, "
-                    f"3) Tendances observées par rapport aux 5 derniers matchs, "
-                    f"4) Points clés et joueurs décisifs, "
-                    f"5) Impact sur la compétition. "
-                    f"Sois détaillé, complet et pertinent. Génère une analyse naturelle sans limite de longueur.")
+                    f"1) Comparaison attentes pré-match vs résultat final (si contexte pré-match fourni uniquement), "
+                    f"2) Analyse tactique et technique basée sur les événements et statistiques, "
+                    f"3) Tendances observées par rapport aux matchs précédents fournis dans l'historique (si historique fournit uniquement), "
+                    f"4) Points clés et joueurs décisifs mentionnés dans les événements, "
+                    f"5) Conclusion générale sur la performance. "
+                    f"Sois détaillé, complet et pertinent. Génère une analyse naturelle.")
     
     data = {
         "model": GPT_MODEL_NAME,
