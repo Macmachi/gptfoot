@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.5.3
+# VERSION : v2.5.4
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -1195,36 +1195,6 @@ async def check_events(fixture_id):
                     total_duree_championnat = 5 + 45 + 10 + 45 + 10 + 30
                     interval = (total_duree_championnat * 60) / 90
 
-            # ISSUE 7: Détection backup des buts annulés (si événement VAR absent)
-            if events is not None and match_data is not None:
-                # Vérifier si un événement VAR "Goal Disallowed" existe
-                has_var_disallowed = any(e.get('type') == "Var" and "Goal Disallowed" in e.get('detail', '')
-                                          for e in events)
-                
-                # Si pas de VAR event, faire la vérification backup
-                if not has_var_disallowed:
-                    # Compter les buts dans events[] (exclure Missed Penalty)
-                    goal_count_home = sum(1 for e in events
-                                          if e.get('type') == "Goal"
-                                          and e.get('detail') != 'Missed Penalty'
-                                          and e.get('team', {}).get('id') == match_data['teams']['home']['id'])
-                    goal_count_away = sum(1 for e in events
-                                          if e.get('type') == "Goal"
-                                          and e.get('detail') != 'Missed Penalty'
-                                          and e.get('team', {}).get('id') == match_data['teams']['away']['id'])
-                    
-                    # Comparer avec le score réel
-                    expected_home = previous_score['home'] + goal_count_home
-                    expected_away = previous_score['away'] + goal_count_away
-                    
-                    # Vérifier incohérence (score réel < score attendu = but(s) annulé(s))
-                    if new_score['home'] < expected_home or new_score['away'] < expected_away:
-                        cancelled_count = (expected_home - new_score['home']) + (expected_away - new_score['away'])
-                        if cancelled_count > 0:
-                            message = f"⚠️ {cancelled_count} but(s) annulé(s) détecté(s) (VAR probable)"
-                            await send_message_to_all_chats(message)
-                            log_message(f"But annulé détecté par comptage (pas d'événement VAR dans la liste)")
-
             # Gestion de la mi-temps
             if match_status == 'HT':
                 result = await handle_halftime(fixture_id, match_status, IS_PAID_API)
@@ -1951,9 +1921,9 @@ async def call_chatgpt_api(data, max_retries=3):
 async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_info, venue, city):
     log_message(f"Informations reçues par l'API : match_start_time={match_start_time}, teams={teams}, league={league}, round_info={round_info}, venue={venue}, city={city}")
     
-    # Construire la saison complète (ex: "2025-2026" si SEASON_ID = "2026")
+    # Construire la saison complète (ex: "2025-2026" si SEASON_ID = "2025")
     season_year = int(SEASON_ID)
-    current_season = f"{season_year - 1}-{season_year}"
+    current_season = f"{season_year}-{season_year + 1}"
     
     user_message = (f"SAISON ACTUELLE : {current_season}\n\n"
                     f"Les informations du match qui a lieu aujourd'hui sont les suivantes : \n"
@@ -1972,7 +1942,8 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
                     f"annonce les équipes qui s'affrontent, la compétition, le lieu et l'heure. "
                     f"Reste général sans inventer de détails sur la forme des équipes ou les enjeux. "
                     f"Embellis la présentation avec des émojis pertinents. "
-                    f"Sois concis et informatif.")
+                    f"Sois concis et informatif. "
+                    f"FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe).")
     data = {
         "model": GPT_MODEL_NAME,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
@@ -1986,7 +1957,7 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
     
     # Construire la saison complète
     season_year = int(SEASON_ID)
-    current_season = f"{season_year - 1}-{season_year}"
+    current_season = f"{season_year}-{season_year + 1}"
     
     user_message = f"SAISON ACTUELLE : {current_season}\n\n"
     
@@ -2020,7 +1991,8 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
                     f"Analyse : les formations de début de match, les joueurs clés mentionnés dans les données, "
                     f"les aspects tactiques visibles dans les formations, et les prédictions si disponibles. "
                     f"Si le contexte du dernier match est fourni, utilise-le pour enrichir ton analyse. "
-                    f"Reste factuel et base-toi sur les données fournies. Sois détaillé et complet.")
+                    f"Reste factuel et base-toi sur les données fournies. Sois détaillé et complet. "
+                    f"FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe).")
     
     data = {
         "model": GPT_MODEL_NAME,
@@ -2041,7 +2013,7 @@ async def call_chatgpt_api_goalmatch(player, team, player_statistics, elapsed_ti
     user_message += f"Le score actuel après le but qui vient d'être marqué pour contextualisé ta réponse , mais ne met pas le score dans ta réponse : {score_string} "
     user_message += f"Voici les détails de l'événement goal du match en cours {event}, utilise les informations pertinentes liées au goal marqué à la {elapsed_time} minute sans parler d'assist!"
 
-    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal le plus récent du match qui est en cours, tu ne dois pas faire plus de trois phrases courtes en te basant sur les informations que je te donne comme qui est le buteur et ses statistiques (si disponible)"
+    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal le plus récent du match qui est en cours, tu ne dois pas faire plus de trois phrases courtes en te basant sur les informations que je te donne comme qui est le buteur et ses statistiques (si disponible). FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe)."
     
     data = {
         "model": GPT_MODEL_NAME,
@@ -2059,7 +2031,7 @@ async def call_chatgpt_api_shootout_goal_match(player, team, player_statistics, 
         user_message += f"Les statistiques du joueur pour ce match qui a marqué (n'utilise pas le temps de jeu du joueur): {player_statistics} "
     user_message += f"Voici les détails de l'événement goal du match en cours {event}."
 
-    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal lors de cette séance aux tirs au but, tu ne dois pas faire plus de deux phrases courtes en te basant sur les informations que je te donne."
+    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal lors de cette séance aux tirs au but, tu ne dois pas faire plus de deux phrases courtes en te basant sur les informations que je te donne. FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe)."
     
     data = {
         "model": GPT_MODEL_NAME,
@@ -2075,7 +2047,7 @@ async def call_chatgpt_api_redmatch(player, team, elapsed_time, event):
                     f"L'équipe dont il fait parti : {team} "
                     f"La minute du match à laquelle il a pris un carton rouge : {elapsed_time} "
                     f"Voici les détails de l'événement du carton rouge du match en cours {event}, utilise uniquement les informations pertinentes liées à ce carton rouge de la {elapsed_time} minute.")
-    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi ce carton rouge le plus récent du match qui est en cours, tu ne dois pas faire plus de deux phrases courtes en te basant sur les informations que je te donne."
+    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi ce carton rouge le plus récent du match qui est en cours, tu ne dois pas faire plus de deux phrases courtes en te basant sur les informations que je te donne. FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe)."
     data = {
         "model": GPT_MODEL_NAME,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
@@ -2089,7 +2061,7 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
     
     # Construire la saison complète
     season_year = int(SEASON_ID)
-    current_season = f"{season_year - 1}-{season_year}"
+    current_season = f"{season_year}-{season_year + 1}"
     
     # Récupérer l'analyse pré-match et l'historique des 5 derniers matchs
     last_matches = get_last_n_matches(5)
@@ -2146,7 +2118,8 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
                     f"3) Tendances observées par rapport aux matchs précédents fournis dans l'historique (si historique fournit uniquement), "
                     f"4) Points clés et joueurs décisifs mentionnés dans les événements, "
                     f"5) Conclusion générale sur la performance. "
-                    f"Sois détaillé, complet et pertinent. Génère une analyse naturelle.")
+                    f"Sois détaillé, complet et pertinent. Génère une analyse naturelle. "
+                    f"FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe).")
     
     data = {
         "model": GPT_MODEL_NAME,
