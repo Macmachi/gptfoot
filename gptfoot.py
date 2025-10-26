@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.5.4
+# VERSION : v2.5.5
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -1226,7 +1226,8 @@ async def check_events(fixture_id):
                 player_id = event['player']['id'] if 'player' in event and event['player'] is not None else None
                 # On créé une clé uniquement pour identifier l'événement en question
                 event_key = f"{event['type']}_{event['time']['elapsed']}_{player_id}"
-                event_key_sub = f"{event['type']}_{player_id}"
+                # Clé pour détecter les corrections (inclut le timing pour distinguer les doublés)
+                event_key_sub = f"{event['type']}_{player_id}_{event['time']['elapsed']}"
 
                 # ISSUE 6: Vérifier si l'événement a déjà été envoyé et si le timing a changé
                 if event_key_sub in sent_events_details:
@@ -1234,19 +1235,30 @@ async def check_events(fixture_id):
                     old_time = old_data.get('time')
                     new_time = event['time']['elapsed']
                     
-                    # Vérifier si le timing a changé et si correction pas encore envoyée
-                    if old_time is not None and old_time != new_time and not old_data.get('correction_sent', False):
-                        player_name = old_data.get('player_name', 'Joueur inconnu')
-                        team_name = old_data.get('team_name', 'Équipe inconnue')
-                        message = f"⚠️ Correction: Le but de {player_name} ({team_name}) était à {new_time}' (et non {old_time}')"
-                        await send_message_to_all_chats(message)
-                        log_message(f"Correction de timing envoyée: {old_time}' → {new_time}' pour {player_name}")
-                        
-                        # Mettre à jour le timing et marquer correction envoyée
-                        sent_events_details[event_key_sub]['time'] = new_time
-                        sent_events_details[event_key_sub]['correction_sent'] = True
+                    # Vérifier si c'est une vraie correction (petite différence de timing) ou un doublon (nouveau but)
+                    # Si la différence est > 2 minutes, c'est probablement un nouveau but (doublon), pas une correction
+                    time_difference = abs(new_time - old_time) if old_time is not None else 0
                     
-                    continue
+                    if old_time is not None and old_time != new_time and not old_data.get('correction_sent', False):
+                        if time_difference <= 2:
+                            # Petite différence (≤2 min) = correction de timing du même but
+                            player_name = old_data.get('player_name', 'Joueur inconnu')
+                            team_name = old_data.get('team_name', 'Équipe inconnue')
+                            message = f"⚠️ Correction: Le but de {player_name} ({team_name}) était à {new_time}' (et non {old_time}')"
+                            await send_message_to_all_chats(message)
+                            log_message(f"Correction de timing envoyée: {old_time}' → {new_time}' pour {player_name}")
+                            
+                            # Mettre à jour le timing et marquer correction envoyée
+                            sent_events_details[event_key_sub]['time'] = new_time
+                            sent_events_details[event_key_sub]['correction_sent'] = True
+                            continue
+                        else:
+                            # Grande différence = nouveau but du même joueur (doublon/triplé)
+                            log_message(f"Nouveau but détecté pour le même joueur (différence de {time_difference} min): {old_time}' vs {new_time}'")
+                            # Ne pas continuer, traiter comme un nouveau but
+                    else:
+                        # Même timing ou correction déjà envoyée = ignorer
+                        continue
                 
                 if event_key in sent_events:
                     continue
@@ -1344,7 +1356,8 @@ async def check_events(fixture_id):
                         sent_events.add(goal_info['event_key'])
                         
                         # ISSUE 6: Stocker les détails de l'événement pour détecter les corrections futures
-                        event_key_sub = f"Goal_{goal_info['player']['id'] if goal_info['player'] else None}"
+                        # Utiliser une clé unique incluant le timing approximatif pour distinguer les doublés
+                        event_key_sub = f"Goal_{goal_info['player']['id'] if goal_info['player'] else None}_{goal_info['elapsed_time']}"
                         sent_events_details[event_key_sub] = {
                             'time': goal_info['elapsed_time'],
                             'player_id': goal_info['player']['id'] if goal_info['player'] else None,
@@ -1937,17 +1950,18 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
     system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse de matchs de football. "
                     f"IMPORTANT : Nous sommes en saison {current_season}. "
                     f"Tu dois te baser UNIQUEMENT sur les informations fournies dans le message utilisateur. "
-                    f"N'utilise JAMAIS tes connaissances sur les saisons précédentes (2024-2025 ou antérieures). "
-                    f"Fais une présentation simple et factuelle en français du match qui aura lieu aujourd'hui : "
+                    f"N'utilise JAMAIS tes connaissances sur les saisons antérieures à {current_season}. "
+                    f"Fais une présentation simple et factuelle du match qui aura lieu aujourd'hui **en 3-4 phrases maximum** : "
                     f"annonce les équipes qui s'affrontent, la compétition, le lieu et l'heure. "
+                    f"**Traduis les noms de villes dans la langue {LANGUAGE}** (ex: Geneva → Genève si french, Geneva → Genf si german, etc.). "
                     f"Reste général sans inventer de détails sur la forme des équipes ou les enjeux. "
                     f"Embellis la présentation avec des émojis pertinents. "
-                    f"Sois concis et informatif. "
+                    f"Sois concis, engageant et informatif. "
                     f"FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe).")
     data = {
         "model": GPT_MODEL_NAME,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-        "max_tokens": 1500
+        "max_tokens": 800
     }
     return await call_chatgpt_api(data)
 
@@ -1986,18 +2000,18 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
     system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse tactique de matchs de football. "
                     f"IMPORTANT : Nous sommes en saison {current_season}. "
                     f"Tu dois te baser UNIQUEMENT sur les informations fournies (compositions, formations, prédictions si disponibles, contexte du dernier match). "
-                    f"N'utilise JAMAIS tes connaissances sur les saisons précédentes (2024-2025 ou antérieures). "
-                    f"Fournis une analyse détaillée des compositions avec des émojis pour rendre la présentation attrayante. "
+                    f"N'utilise JAMAIS tes connaissances sur les saisons antérieures à {current_season}. "
+                    f"Fournis une analyse **concise et synthétique en 6-8 phrases maximum** des compositions avec des émojis pour rendre la présentation attrayante. "
                     f"Analyse : les formations de début de match, les joueurs clés mentionnés dans les données, "
                     f"les aspects tactiques visibles dans les formations, et les prédictions si disponibles. "
                     f"Si le contexte du dernier match est fourni, utilise-le pour enrichir ton analyse. "
-                    f"Reste factuel et base-toi sur les données fournies. Sois détaillé et complet. "
+                    f"Reste factuel et base-toi sur les données fournies. Sois synthétique et pertinent. "
                     f"FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe).")
     
     data = {
         "model": GPT_MODEL_NAME,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-        "max_tokens": 2500
+        "max_tokens": 1200
     }
     
     return await call_chatgpt_api(data)
@@ -2007,18 +2021,18 @@ async def call_chatgpt_api_goalmatch(player, team, player_statistics, elapsed_ti
     log_message(f"Informations reçues par l'API : player={player}, team={team}, player_statistics={player_statistics}, elapsed_time={elapsed_time}, event={event}, score_string={score_string}")
     user_message = f"Le joueur qui a marqué : {player} "
     user_message += f"L'équipe pour laquelle le but a été comptabilisé : {team}"
-    if player_statistics:  
-        user_message += f"Les statistiques du joueur pour ce match qui a marqué, n'utilise pas le temps de jeu du joueur : {player_statistics} "
+    if player_statistics:
+        user_message += f"Les statistiques du joueur pour ce match qui a marqué (IGNORE COMPLÈTEMENT le temps de jeu 'minutes' du joueur) : {player_statistics} "
     user_message += f"La minute du match quand le goal a été marqué : {elapsed_time} "
     user_message += f"Le score actuel après le but qui vient d'être marqué pour contextualisé ta réponse , mais ne met pas le score dans ta réponse : {score_string} "
     user_message += f"Voici les détails de l'événement goal du match en cours {event}, utilise les informations pertinentes liées au goal marqué à la {elapsed_time} minute sans parler d'assist!"
 
-    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal le plus récent du match qui est en cours, tu ne dois pas faire plus de trois phrases courtes en te basant sur les informations que je te donne comme qui est le buteur et ses statistiques (si disponible). FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe)."
+    system_prompt = "Tu es un journaliste sportif spécialisé dans l'analyse de matchs de football, commente moi le goal le plus récent du match qui est en cours, tu ne dois pas faire plus de deux phrases courtes en te basant sur les informations que je te donne comme qui est le buteur et ses statistiques (si disponible). **INTERDIT ABSOLU de mentionner le temps de jeu du joueur (minutes jouées) car cette donnée est souvent incorrecte.** Concentre-toi sur le type de but, la position du joueur, et les statistiques de passes/tirs uniquement. FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe)."
     
     data = {
         "model": GPT_MODEL_NAME,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-        "max_tokens": 2000
+        "max_tokens": 500
     }
     return await call_chatgpt_api(data)
 
@@ -2106,25 +2120,25 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
             if 'type' in home_stat and 'value' in home_stat and 'type' in away_stat and 'value' in away_stat:
                 user_message += f"• {home_stat['type']}: {home_stat['value']} - {away_stat['value']}\n"
 
-    system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse approfondie de matchs de football. "
+    system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse de matchs de football. "
                     f"IMPORTANT : Nous sommes en saison {current_season}. "
                     f"Tu dois te baser UNIQUEMENT sur les informations fournies : contexte pré-match, historique des matchs fourni, "
                     f"score final, événements et statistiques du match. "
-                    f"N'utilise JAMAIS tes connaissances sur les saisons précédentes (2024-2025 ou antérieures). "
-                    f"Donne une analyse très détaillée et contextualisée de la prestation du {TEAM_NAME} pendant le match. "
-                    f"Structure ton analyse ainsi : "
-                    f"1) Comparaison attentes pré-match vs résultat final (si contexte pré-match fourni uniquement), "
-                    f"2) Analyse tactique et technique basée sur les événements et statistiques, "
-                    f"3) Tendances observées par rapport aux matchs précédents fournis dans l'historique (si historique fournit uniquement), "
-                    f"4) Points clés et joueurs décisifs mentionnés dans les événements, "
-                    f"5) Conclusion générale sur la performance. "
-                    f"Sois détaillé, complet et pertinent. Génère une analyse naturelle. "
+                    f"N'utilise JAMAIS tes connaissances sur les saisons antérieures à {current_season}. "
+                    f"Donne une analyse **synthétique en 5-6 points clés maximum** de la prestation du {TEAM_NAME} pendant le match. "
+                    f"Structure ton analyse ainsi (chaque point en 1-2 phrases) : "
+                    f"1) Résultat et contexte (comparaison attentes vs résultat si contexte pré-match fourni), "
+                    f"2) Analyse tactique principale (formation, possession, style de jeu), "
+                    f"3) Performance offensive et défensive (statistiques clés), "
+                    f"4) Joueurs décisifs et moments clés du match, "
+                    f"5) Conclusion sur la performance globale. "
+                    f"Sois concis, pertinent et engageant. Chaque point doit être court et informatif. "
                     f"FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe).")
     
     data = {
         "model": GPT_MODEL_NAME,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-        "max_tokens": 5000
+        "max_tokens": 2000
     }
 
     return await call_chatgpt_api(data)
