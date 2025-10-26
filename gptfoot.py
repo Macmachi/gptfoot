@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 #
-# AUTEUR :  Arnaud R. (https://github.com/Macmachi/gptfoot)
+# AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
 # VERSION : v2.5.5
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
@@ -2181,4 +2181,5 @@ async def main():
         await asyncio.sleep(10)  
 
 if __name__ == "__main__":
+
     asyncio.run(main())
