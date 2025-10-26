@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.5.5
+# VERSION : v2.5.6
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -575,24 +575,24 @@ async def check_matches():
             # Calculer le temps pour envoyer le message 10 minutes avant le début du match
             seconds_until_message = max(0, seconds_until_match_start - 900)  # 900 secondes = 15 minutes
             # On envoie le message pour annoncer qu'il y a un match aujourd'hui
-            await send_match_today_message(match_start_time, fixture_id, current_league_id, teams, league, round_info, venue, city) 
+            await send_match_today_message(match_start_time, fixture_id, current_league_id, teams, league, round_info, venue, city)
            
             # Attendre jusqu'à l'heure d'envoi du message 10 minutes avant le début du match
             await asyncio.sleep(seconds_until_message)
             # Envoyer le message si IS_PAID_API est vrai
             if IS_PAID_API:
                 # Attendez que le match débute réellement qui est vérifié dans wait_for_match_start
-                match_data = (await wait_for_match_start(fixture_id))[3]
+                match_data = (await wait_for_match_start(fixture_id, teams, league, round_info, venue, city))[3]
                 log_message(f"match_data reçu de wait_for_match_start dans check_matches {match_data}\n")
             
             else:
                 # Attendre jusqu'au début du match pour envoyer la compo et voir le match a réellement commencé si on utilise l'api free pour limiter les calls à l'api
-                # On vérifie pas ici si le match a déjà commencé car la structure du code fait en sorte qu'on puisse pas lancer le script pendant un match qui a commencé pour récuprer ses infos il faut attendre les matchs suivants. 
+                # On vérifie pas ici si le match a déjà commencé car la structure du code fait en sorte qu'on puisse pas lancer le script pendant un match qui a commencé pour récuprer ses infos il faut attendre les matchs suivants.
                 remaining_seconds = seconds_until_match_start - seconds_until_message
                 await asyncio.sleep(remaining_seconds)
-                log_message(f"Fin de l'attente jusqu'à l'heure prévu de début de match") 
+                log_message(f"Fin de l'attente jusqu'à l'heure prévu de début de match")
                 # Attendez que le match débute réellement
-                match_data = (await wait_for_match_start(fixture_id))[3]
+                match_data = (await wait_for_match_start(fixture_id, teams, league, round_info, venue, city))[3]
                 log_message(f"match_data reçu de wait_for_match_start dans check_matches {match_data}\n")
         
             # Envoyez le message de début de match et commencez à vérifier les événements
@@ -657,11 +657,11 @@ async def get_match_predictions(fixture_id):
         return None
 
 #Fonction qui permet de vérifier quand le match démarre réellement par rapport à l'heure prévu en vérifiant si le match a toujours lieu!
-async def wait_for_match_start(fixture_id):
-    log_message(f"fonction wait_for_match_start appelée")  
+async def wait_for_match_start(fixture_id, teams=None, league=None, round_info=None, venue=None, city=None):
+    log_message(f"fonction wait_for_match_start appelée")
 
     # Récupérer les prédictions avant d'envoyer le message de compo (uniquement avec l'api payante car call limité avec gratuit)
-    predictions = None    
+    predictions = None
     if IS_PAID_API:
         predictions = await get_match_predictions(fixture_id)
         if predictions:
@@ -672,7 +672,7 @@ async def wait_for_match_start(fixture_id):
     # Note : On peut potentiellement vérifier ici (actuellement pas le cas) si la compo renvoyée par get_check_match_status et pas none et on pourrait retenter 5 minutes plus tard en mettant le script sur pause uniquement si paid api ?!
     log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time} et \n [DEBUG] match data :\n {match_data}\n\n")
     log_message(f"Envoie du message de compo de match avec send_compo_message")
-    await send_compo_message(match_data, predictions)
+    await send_compo_message(match_data, predictions, fixture_id, teams, league, round_info, venue, city)
 
     while True:
         match_status, match_date, elapsed_time, match_data = await get_check_match_status(fixture_id)
@@ -1579,40 +1579,42 @@ async def send_message_to_all_chats(message, language=LANGUAGE):
         except Exception as e:
             log_message(f"Erreur lors de la lecture des IDs Discord: {e}")
 
-# Envoie un message lorsqu'un match est détecté le jour même 
+# Envoie un message lorsqu'un match est détecté le jour même
 async def send_match_today_message(match_start_time, fixture_id, current_league_id, teams, league, round_info, venue, city):
     log_message("send_match_today_message() appelée.")
-    # Appeler l'API ChatGPT  
+    # Appeler l'API ChatGPT
     chatgpt_analysis = await call_chatgpt_api_matchtoday(match_start_time, teams, league, round_info, venue, city)
     message = f"🤖 : {chatgpt_analysis}"
-    
-    # Sauvegarder l'analyse pré-match dans l'historique
-    match_info = {
-        "date": datetime.datetime.now().isoformat(),
-        "league": league,
-        "round": round_info,
-        "teams": teams,
-        "score": {},
-        "venue": venue,
-        "city": city
-    }
-    save_match_analysis(fixture_id, match_info, chatgpt_analysis)
     
     # Envoyer le message du match à tous les chats.
     await send_message_to_all_chats(message)
 
 # Envoie un message de début de match aux utilisateurs avec des informations sur le match, les compositions des équipes.
-async def send_compo_message(match_data, predictions=None):
+async def send_compo_message(match_data, predictions=None, fixture_id=None, teams=None, league=None, round_info=None, venue=None, city=None):
     log_message("send_compo_message() appelée.")
     log_message(f"Informations reçues par l'API : match_data={match_data}, predictions={predictions}")
 
     if match_data is None:
         log_message("Erreur : match_data est None dans send_compo_message")
         message = "🤖 : Désolé, je n'ai pas pu obtenir les informations sur la composition des équipes pour le moment."
+        chatgpt_analysis = None
     else:
-        # Appeler l'API ChatGPT  
+        # Appeler l'API ChatGPT
         chatgpt_analysis = await call_chatgpt_api_compomatch(match_data, predictions)
         message = "🤖 : " + chatgpt_analysis
+        
+        # Sauvegarder l'analyse pré-match (compositions) dans l'historique
+        if fixture_id and chatgpt_analysis:
+            match_info = {
+                "date": datetime.datetime.now().isoformat(),
+                "league": league if league else "Unknown",
+                "round": round_info if round_info else "Unknown",
+                "teams": teams if teams else {},
+                "score": {},
+                "venue": venue if venue else "Unknown",
+                "city": city if city else "Unknown"
+            }
+            save_match_analysis(fixture_id, match_info, chatgpt_analysis)
 
     # Envoyer le message du match à tous les chats.
     await send_message_to_all_chats(message)
