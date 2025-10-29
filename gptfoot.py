@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.5.6
+# VERSION : v2.5.7
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -1985,35 +1985,30 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
     if predictions:
         user_message += f"\nPrédictions de l'issue du match : {predictions['winner']['name']} (Comment: {predictions['winner']['comment']})"
     
-    # Ajouter l'analyse du dernier match pour enrichir le contexte
-    last_matches = get_last_n_matches(1)
+    # Ajouter l'historique des 5 derniers matchs pour enrichir le contexte
+    last_matches = get_last_n_matches(5)
     if last_matches and len(last_matches) > 0:
-        last_match = last_matches[0]
-        last_match_analysis = last_match.get("post_match_analysis", "")
-        if last_match_analysis and last_match_analysis != "Pas d'analyse disponible":
-            user_message += f"\n\nCONTEXTE DU DERNIER MATCH:\n"
-            user_message += f"Date: {last_match.get('date', 'Unknown')}\n"
-            user_message += f"Résultat: {last_match.get('teams', {}).get('home', 'Unknown')} "
-            user_message += f"{last_match.get('score', {}).get('home', '?')} - "
-            user_message += f"{last_match.get('score', {}).get('away', '?')} "
-            user_message += f"{last_match.get('teams', {}).get('away', 'Unknown')}\n"
-            user_message += f"Analyse: {last_match_analysis}"
+        match_history_context = format_match_history_for_context(last_matches)
+        user_message += f"\n\n{match_history_context}"
 
     system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse tactique de matchs de football. "
                     f"IMPORTANT : Nous sommes en saison {current_season}. "
-                    f"Tu dois te baser UNIQUEMENT sur les informations fournies (compositions, formations, prédictions si disponibles, contexte du dernier match). "
+                    f"Tu dois te baser UNIQUEMENT sur les informations fournies (compositions, formations, prédictions si disponibles, historique des matchs). "
                     f"N'utilise JAMAIS tes connaissances sur les saisons antérieures à {current_season}. "
-                    f"Fournis une analyse **concise et synthétique en 6-8 phrases maximum** des compositions avec des émojis pour rendre la présentation attrayante. "
-                    f"Analyse : les formations de début de match, les joueurs clés mentionnés dans les données, "
-                    f"les aspects tactiques visibles dans les formations, et les prédictions si disponibles. "
-                    f"Si le contexte du dernier match est fourni, utilise-le pour enrichir ton analyse. "
-                    f"Reste factuel et base-toi sur les données fournies. Sois synthétique et pertinent. "
+                    f"\n\n"
+                    f"**STRUCTURE OBLIGATOIRE DE TA RÉPONSE** (utilise des sauts de ligne entre chaque section) :\n"
+                    f"1️⃣ **COMPOSITIONS** (2-3 phrases) : Analyse les formations et joueurs clés des deux équipes\n"
+                    f"2️⃣ **CONTEXTE RÉCENT** (2-3 phrases) : Résume brièvement la forme récente basée sur l'historique fourni\n"
+                    f"3️⃣ **PRONOSTIC** (1-2 phrases) : Donne ton pronostic basé sur les données (prédictions si disponibles)\n"
+                    f"\n"
+                    f"Utilise des émojis pertinents (⚽🛡️🔥📊) pour aérer. "
+                    f"Sois concis, factuel et engageant. Chaque section doit être séparée par un saut de ligne.\n"
                     f"FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe).")
     
     data = {
         "model": GPT_MODEL_NAME,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-        "max_tokens": 1200
+        "max_tokens": 1500
     }
     
     return await call_chatgpt_api(data)
@@ -2127,14 +2122,15 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
                     f"Tu dois te baser UNIQUEMENT sur les informations fournies : contexte pré-match, historique des matchs fourni, "
                     f"score final, événements et statistiques du match. "
                     f"N'utilise JAMAIS tes connaissances sur les saisons antérieures à {current_season}. "
-                    f"Donne une analyse **synthétique en 5-6 points clés maximum** de la prestation du {TEAM_NAME} pendant le match. "
-                    f"Structure ton analyse ainsi (chaque point en 1-2 phrases) : "
-                    f"1) Résultat et contexte (comparaison attentes vs résultat si contexte pré-match fourni), "
-                    f"2) Analyse tactique principale (formation, possession, style de jeu), "
-                    f"3) Performance offensive et défensive (statistiques clés), "
-                    f"4) Joueurs décisifs et moments clés du match, "
-                    f"5) Conclusion sur la performance globale. "
-                    f"Sois concis, pertinent et engageant. Chaque point doit être court et informatif. "
+                    f"\n\n"
+                    f"**STRUCTURE OBLIGATOIRE DE TA RÉPONSE** (utilise des sauts de ligne entre chaque section) :\n"
+                    f"1️⃣ **RÉSULTAT & CONTEXTE** (2-3 phrases) : Compare le résultat aux attentes pré-match et à la forme récente\n"
+                    f"2️⃣ **ANALYSE TACTIQUE** (2-3 phrases) : Formation, possession, style de jeu et statistiques clés\n"
+                    f"3️⃣ **MOMENTS DÉCISIFS** (2-3 phrases) : Joueurs clés, buts, cartons et tournants du match\n"
+                    f"4️⃣ **BILAN** (1-2 phrases) : Conclusion sur la performance globale du {TEAM_NAME}\n"
+                    f"\n"
+                    f"Utilise des émojis pertinents (⚽🛡️🔥📊⭐) pour aérer. "
+                    f"Sois concis, factuel et engageant. Chaque section doit être séparée par un saut de ligne.\n"
                     f"FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe).")
     
     data = {
