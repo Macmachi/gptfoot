@@ -1,0 +1,60 @@
+[KEYS]
+; Get your Poe API key here: https://poe.com/api_key
+POE_API_KEY = your_poe_api_key_here
+; Contact https://telegram.me/BotFather on Telegram to get your bot token
+TELEGRAM_BOT_TOKEN = your_telegram_token_here
+; Discord bot token: https://discord.com/developers/applications
+DISCORD_BOT_TOKEN = your_discord_token_here
+; Get your api-football.com key (free tier = 100 requests/day) here:
+; https://www.api-football.com/
+API_FOOTBALL_KEY = your_api_football_key_here
+; Numeric team ID from api-football (browse at https://dashboard.api-football.com/)
+TEAM_ID = your_team_id_here
+; Display name of the team (used in messages and AI prompts)
+TEAM_NAME = your_team_name_here
+; Comma-separated list of league IDs to monitor for this team
+; Example: 39 for English Premier League, 2 for UEFA Champions League, etc.
+LEAGUE_IDS = 1,2,3
+; Season ID (4-digit year). For 2025-2026 season -> 2025
+SEASON_ID = your_season_id_here
+
+[OPTIONS]
+; Enable/disable Telegram bot
+USE_TELEGRAM = true
+; Enable/disable Discord bot
+USE_DISCORD = true
+; Set to true if you have a paid api-football plan (more frequent live polling)
+IS_PAID_API = false
+; Track and log AI API costs in logs
+ENABLE_COST_TRACKING = true
+
+[API_MODELS]
+; Main model for match analysis (e.g., Gemini-3-Flash, Grok-4-Fast-Reasoning, GPT-4o, Claude-Sonnet-4)
+MAIN_MODEL = Gemini-3-Flash
+; Model for translations (can be the same or different)
+TRANSLATION_MODEL = Gemini-3-Flash
+
+[API_PRICING]
+; Cost per 1 million input tokens in USD (adjust for your model / provider)
+INPUT_COST_PER_1M_TOKENS = 0.21
+; Cost per 1 million output tokens in USD (adjust for your model / provider)
+OUTPUT_COST_PER_1M_TOKENS = 0.51
+; Cache discount percentage (e.g., 75 for 75% discount on cached input)
+CACHE_DISCOUNT_PERCENTAGE = 75
+
+[SERVER]
+; Server timezone (used to schedule the daily match check at 09:00)
+TIMEZONE = Europe/Paris
+
+[LANGUAGES]
+; Output language. Write the language name in lowercase English.
+; If not "french", messages will be translated by the LLM (extra tokens consumed).
+LANGUAGE = french
+
+[LEAGUE_TYPES]
+; OPTIONAL — Comma-separated league IDs that may go to extra time (cups, knockout phases).
+; Each ID listed here uses an extended live-polling budget (+30 min vs regular championship).
+; Leagues NOT listed are treated as regular championships (no extra time).
+; Leave empty if all your leagues in LEAGUE_IDS are regular championships.
+; Example for monitoring a national cup with possible extra time: LEAGUES_WITH_EXTRA_TIME = 209
+LEAGUES_WITH_EXTRA_TIME =

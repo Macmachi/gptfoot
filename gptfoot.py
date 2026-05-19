@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.5.7
+# VERSION : v2.6.0
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -121,7 +121,17 @@ try:
     INPUT_COST_PER_1M_TOKENS = float(config['API_PRICING'].get('INPUT_COST_PER_1M_TOKENS', '0.21'))
     OUTPUT_COST_PER_1M_TOKENS = float(config['API_PRICING'].get('OUTPUT_COST_PER_1M_TOKENS', '0.51'))
     CACHE_DISCOUNT_PERCENTAGE = float(config['API_PRICING'].get('CACHE_DISCOUNT_PERCENTAGE', '75'))
-    
+
+    # Récupérer la liste des ligues pouvant aller en prolongation (coupes / phases finales)
+    # Tout ID listé ici est traité comme un match potentiellement avec prolongation (durée 145 min budget polling).
+    # Les ligues non listées sont traitées comme championnats classiques (durée 115 min).
+    # Cette section est optionnelle pour rester rétrocompatible.
+    if config.has_section('LEAGUE_TYPES'):
+        LEAGUES_WITH_EXTRA_TIME_STR = config['LEAGUE_TYPES'].get('LEAGUES_WITH_EXTRA_TIME', '').strip()
+    else:
+        LEAGUES_WITH_EXTRA_TIME_STR = ''
+    LEAGUES_WITH_EXTRA_TIME = [int(x.strip()) for x in LEAGUES_WITH_EXTRA_TIME_STR.split(',') if x.strip()]
+
 except KeyError as e:
     print(f"❌ ERREUR: Section ou clé manquante dans config.ini: {e}")
     print("Vérifiez que toutes les sections [KEYS], [OPTIONS], [SERVER], [LANGUAGES], [API_MODELS], [API_PRICING] existent")
@@ -152,6 +162,11 @@ is_running = True
 sent_events = set()
 # Stockage détaillé des événements pour détecter les corrections de timing
 sent_events_details = {}
+# Cache mémoire des statistiques de saison de notre équipe pour la ligue du match courant.
+# Récupéré 1 seule fois par match (juste avant la compo) puis réutilisé pour le prompt
+# d'analyse de début, de fin, ainsi que pour le bloc d'affichage en fin de match.
+# Réinitialisé à chaque nouveau match.
+current_season_stats = None
 # Variables pour le suivi des coûts API
 api_call_count = 0
 total_input_tokens = 0
@@ -612,6 +627,55 @@ async def check_matches():
     else:
         log_message(f"Aucun match prévu aujourd'hui")
 
+# Fonction pour récupérer les statistiques de saison de l'équipe dans la ligue courante
+async def get_team_season_statistics(league_id, team_id, season):
+    """
+    Récupère les stats de saison de l'équipe pour la compétition donnée
+    via l'endpoint /teams/statistics. Renvoie le dict 'response' ou None.
+    Cette fonction n'appelle l'API qu'une seule fois (1 requête / match).
+    En cas de rate-limit faible (< 2), on skip silencieusement pour ne pas
+    interrompre la fin du match.
+    """
+    log_message(f"get_team_season_statistics() appelée (league={league_id}, team={team_id}, season={season}).")
+    url = f"https://v3.football.api-sports.io/teams/statistics?league={league_id}&team={team_id}&season={season}"
+    headers = {
+        "x-apisports-key": API_FOOTBALL_KEY
+    }
+
+    try:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, headers=headers) as resp:
+                remaining_calls_per_day = int(resp.headers.get('x-ratelimit-requests-remaining', 0))
+                log_message(f"Nombre d'appels à l'api restants : {remaining_calls_per_day}")
+
+                # Tolérant : on ne raise pas, on skip si trop bas
+                if remaining_calls_per_day < 2:
+                    log_message("Quota API trop bas pour récupérer les stats de saison, skip.", "WARNING")
+                    return None
+
+                resp.raise_for_status()
+                data = await resp.json()
+
+                if not data.get('response'):
+                    log_message("Pas de données récupérées depuis get_team_season_statistics", "WARNING")
+                    return None
+
+                return data['response']
+
+    except asyncio.TimeoutError:
+        log_message("Timeout lors de la récupération des stats de saison", "ERROR")
+        return None
+    except aiohttp.ClientError as e:
+        log_message(f"Erreur réseau dans get_team_season_statistics: {e}", "ERROR")
+        return None
+    except KeyError as e:
+        log_message(f"Données manquantes (get_team_season_statistics): {e}", "ERROR")
+        return None
+    except Exception as e:
+        log_message(f"Erreur inattendue dans get_team_season_statistics: {e}", "ERROR")
+        return None
+
 # Fonction pour récupérer les prédictions
 async def get_match_predictions(fixture_id):
     log_message("get_match_predictions() appelée.")
@@ -671,6 +735,21 @@ async def wait_for_match_start(fixture_id, teams=None, league=None, round_info=N
     match_status, match_date, elapsed_time, match_data = await get_check_match_status(fixture_id)
     # Note : On peut potentiellement vérifier ici (actuellement pas le cas) si la compo renvoyée par get_check_match_status et pas none et on pourrait retenter 5 minutes plus tard en mettant le script sur pause uniquement si paid api ?!
     log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time} et \n [DEBUG] match data :\n {match_data}\n\n")
+
+    # Récupération unique des stats de saison de notre équipe pour la ligue du match (1 seul appel API par match).
+    # Mises en cache dans la variable globale current_season_stats pour réutilisation par
+    # call_chatgpt_api_compomatch (analyse de début), call_chatgpt_api_endmatch (analyse de fin)
+    # et le bloc d'affichage en fin de match.
+    global current_season_stats, current_league_id
+    current_season_stats = None
+    try:
+        if current_league_id and TEAM_ID and SEASON_ID:
+            current_season_stats = await get_team_season_statistics(current_league_id, TEAM_ID, SEASON_ID)
+            log_message(f"Stats de saison récupérées et mises en cache : {bool(current_season_stats)}")
+    except Exception as e:
+        log_message(f"Erreur lors de la récupération des stats de saison : {e}", "ERROR")
+        current_season_stats = None
+
     log_message(f"Envoie du message de compo de match avec send_compo_message")
     await send_compo_message(match_data, predictions, fixture_id, teams, league, round_info, venue, city)
 
@@ -1181,19 +1260,18 @@ async def check_events(fixture_id):
             if IS_PAID_API:
                 interval = 15
             else:
-                # Pour API gratuite - Utilisez current_league_id pour définir un intervalle différent selon l'id de la ligue
-                if current_league_id == 2:
-                    total_duree_championnat = 5 + 45 + 10 + 45 + 10 + 30
-                    interval = (total_duree_championnat * 60) / 90
-                elif current_league_id == 207:
-                    total_duree_championnat = 5 + 45 + 10 + 45 + 10
-                    interval = (total_duree_championnat * 60) / 90
-                elif current_league_id == 209:
-                    total_duree_championnat = 5 + 45 + 10 + 45 + 10 + 30
-                    interval = (total_duree_championnat * 60) / 90
+                # API gratuite : on cible 85 polls/match pour rester sous le quota 100 req/jour.
+                # Les ~15 appels restants couvrent : is_match_today (1 par ligue surveillée),
+                # wait_for_match_start (compo), /teams/statistics (saison) et marges éventuelles.
+                target_polls = 85
+                # Durée totale en minutes : pre-match buffer + 1ère mi-temps + pause + 2ème mi-temps + marge fin.
+                # +30 min ajoutées si la compétition peut aller en prolongation (configurable via [LEAGUE_TYPES]).
+                base_duration_min = 5 + 45 + 10 + 45 + 10
+                if current_league_id in LEAGUES_WITH_EXTRA_TIME:
+                    total_duree_championnat = base_duration_min + 30
                 else:
-                    total_duree_championnat = 5 + 45 + 10 + 45 + 10 + 30
-                    interval = (total_duree_championnat * 60) / 90
+                    total_duree_championnat = base_duration_min
+                interval = (total_duree_championnat * 60) / target_polls
 
             # Gestion de la mi-temps
             if match_status == 'HT':
@@ -1726,6 +1804,109 @@ async def notify_users_max_api_requests_reached():
     await send_message_to_all_chats(message)          
 
 # Fonction pour formater les événements bruts en cas d'indisponibilité de l'API Poe
+def format_season_stats_for_prompt(season_stats, team_name):
+    """
+    Version ultra-compacte des stats de saison destinée à être injectée dans
+    le prompt LLM (analyse de début et de fin de match). Vise ~50-80 tokens
+    pour ne pas alourdir la consommation Poe en fin de saison.
+    Renvoie une string vide si stats indisponibles.
+    """
+    if not season_stats or not isinstance(season_stats, dict):
+        return ""
+    try:
+        league = (season_stats.get('league', {}) or {})
+        league_name = league.get('name', 'compétition')
+        season_year = league.get('season', '')
+
+        fixtures = season_stats.get('fixtures', {}) or {}
+        played_total = (fixtures.get('played', {}) or {}).get('total', 0) or 0
+        if played_total == 0:
+            return ""
+        wins_total = (fixtures.get('wins', {}) or {}).get('total', 0) or 0
+        draws_total = (fixtures.get('draws', {}) or {}).get('total', 0) or 0
+        loses_total = (fixtures.get('loses', {}) or {}).get('total', 0) or 0
+
+        goals = season_stats.get('goals', {}) or {}
+        gf = ((goals.get('for', {}) or {}).get('total', {}) or {}).get('total', 0) or 0
+        ga = ((goals.get('against', {}) or {}).get('total', {}) or {}).get('total', 0) or 0
+
+        clean_sheet = (season_stats.get('clean_sheet', {}) or {}).get('total', 0) or 0
+        failed = (season_stats.get('failed_to_score', {}) or {}).get('total', 0) or 0
+
+        form_full = season_stats.get('form') or ""
+        form_recent = form_full[-5:] if form_full else ""
+
+        # Format compact en une ligne dense
+        season_label = f" {season_year}" if season_year else ""
+        line = (
+            f"STATS SAISON {team_name} en {league_name}{season_label} : "
+            f"{played_total}J ({wins_total}V/{draws_total}N/{loses_total}D), "
+            f"buts {gf}/{ga}, clean sheets {clean_sheet}, sans marquer {failed}"
+        )
+        if form_recent:
+            line += f", forme 5 derniers : {form_recent}"
+        return line
+    except Exception as e:
+        log_message(f"Erreur format_season_stats_for_prompt : {e}", "ERROR")
+        return ""
+
+def format_season_stats_for_display(season_stats, team_name, league_name):
+    """
+    Formate de manière compacte les statistiques de saison de l'équipe
+    pour affichage en fin de match. Compatible Telegram + Discord (Markdown legacy).
+    Renvoie une string vide si les données sont indisponibles.
+    """
+    if not season_stats or not isinstance(season_stats, dict):
+        return ""
+
+    try:
+        fixtures = season_stats.get('fixtures', {}) or {}
+        played = fixtures.get('played', {}) or {}
+        wins = fixtures.get('wins', {}) or {}
+        draws = fixtures.get('draws', {}) or {}
+        loses = fixtures.get('loses', {}) or {}
+
+        played_total = played.get('total', 0) or 0
+        wins_total = wins.get('total', 0) or 0
+        draws_total = draws.get('total', 0) or 0
+        loses_total = loses.get('total', 0) or 0
+
+        goals = season_stats.get('goals', {}) or {}
+        gf = (goals.get('for', {}) or {}).get('total', {}) or {}
+        ga = (goals.get('against', {}) or {}).get('total', {}) or {}
+        goals_for = gf.get('total', 0) or 0
+        goals_against = ga.get('total', 0) or 0
+        goal_diff = goals_for - goals_against
+
+        clean_sheet = (season_stats.get('clean_sheet', {}) or {}).get('total', 0) or 0
+        failed = (season_stats.get('failed_to_score', {}) or {}).get('total', 0) or 0
+
+        # Forme : 5 derniers matchs (les plus récents = fin de la chaîne)
+        form_full = season_stats.get('form') or ""
+        form_recent = form_full[-5:] if form_full else ""
+        # Mapper W/D/L vers emojis pour lisibilité
+        form_map = {"W": "🟢", "D": "⚪", "L": "🔴"}
+        form_emoji = "".join(form_map.get(c, c) for c in form_recent) if form_recent else "—"
+
+        # Si aucun match joué, ne rien afficher
+        if played_total == 0:
+            return ""
+
+        # En-tête sobre, sans titre Markdown lourd (compat Telegram parse_mode=Markdown)
+        lines = []
+        lines.append(f"\n📈 *Saison {team_name} — {league_name}*")
+        lines.append(f"• Bilan : {played_total} J | {wins_total}V {draws_total}N {loses_total}D")
+        sign = "+" if goal_diff > 0 else ""
+        lines.append(f"• Buts : {goals_for} pour / {goals_against} contre (diff {sign}{goal_diff})")
+        lines.append(f"• Clean sheets : {clean_sheet} | Sans marquer : {failed}")
+        if form_recent:
+            lines.append(f"• Forme (5 derniers) : {form_emoji}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        log_message(f"Erreur lors du formatage des stats de saison : {e}", "ERROR")
+        return ""
+
 def format_raw_events(events, home_team, away_team):
     """Formate les événements bruts de l'API football en cas d'indisponibilité de l'API Poe"""
     if not events:
@@ -1788,6 +1969,7 @@ async def send_end_message(home_team, away_team, home_score, away_score, match_s
         message += "🤖 Mon analyse :\n" + chatgpt_analysis
     
     # Sauvegarder l'analyse post-match dans l'historique
+    league_name_for_stats = None
     try:
         data = load_match_history()
         if data.get("matches"):
@@ -1798,11 +1980,30 @@ async def send_end_message(home_team, away_team, home_score, away_score, match_s
                 "away": away_score
             }
             last_match["post_match_analysis"] = chatgpt_analysis
+            league_name_for_stats = last_match.get("league")
             save_match_history(data)
             log_message(f"Analyse post-match sauvegardée pour le match {last_match.get('fixture_id')}")
     except Exception as e:
         log_message(f"Erreur lors de la sauvegarde de l'analyse post-match : {e}")
-    
+
+    # Ajouter les statistiques pertinentes de la saison pour notre équipe dans la ligue du match.
+    # On réutilise le cache mémoire alimenté avant la compo (zéro appel API ici).
+    # Fallback : si le cache est vide (ex: échec à la compo), on tente un appel tardif.
+    try:
+        global current_season_stats, current_league_id
+        season_stats = current_season_stats
+        if not season_stats and current_league_id and TEAM_ID and SEASON_ID:
+            log_message("Cache stats saison vide, fallback : tentative de récupération en fin de match.")
+            season_stats = await get_team_season_statistics(current_league_id, TEAM_ID, SEASON_ID)
+        if season_stats:
+            if not league_name_for_stats:
+                league_name_for_stats = (season_stats.get('league', {}) or {}).get('name', 'Compétition')
+            stats_block = format_season_stats_for_display(season_stats, TEAM_NAME, league_name_for_stats)
+            if stats_block:
+                message += "\n" + stats_block
+    except Exception as e:
+        log_message(f"Erreur lors de l'ajout des stats de saison au message de fin : {e}", "ERROR")
+
     await send_message_to_all_chats(message)
     
     # Afficher le résumé des coûts à la fin du match
@@ -1984,7 +2185,12 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
 
     if predictions:
         user_message += f"\nPrédictions de l'issue du match : {predictions['winner']['name']} (Comment: {predictions['winner']['comment']})"
-    
+
+    # Ajouter les stats de saison de l'équipe dans la ligue où le match est joué (contexte bref)
+    season_stats_line = format_season_stats_for_prompt(current_season_stats, TEAM_NAME) if current_season_stats else ""
+    if season_stats_line:
+        user_message += f"\n\n{season_stats_line}"
+
     # Ajouter l'historique des 5 derniers matchs pour enrichir le contexte
     last_matches = get_last_n_matches(5)
     if last_matches and len(last_matches) > 0:
@@ -1993,7 +2199,7 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
 
     system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse tactique de matchs de football. "
                     f"IMPORTANT : Nous sommes en saison {current_season}. "
-                    f"Tu dois te baser UNIQUEMENT sur les informations fournies (compositions, formations, prédictions si disponibles, historique des matchs). "
+                    f"Tu dois te baser UNIQUEMENT sur les informations fournies (compositions, formations, prédictions si disponibles, stats de saison dans la compétition du match, historique des matchs). "
                     f"N'utilise JAMAIS tes connaissances sur les saisons antérieures à {current_season}. "
                     f"\n\n"
                     f"**STRUCTURE OBLIGATOIRE DE TA RÉPONSE** (utilise des sauts de ligne entre chaque section) :\n"
@@ -2092,7 +2298,12 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
     # Ajouter l'analyse pré-match pour contexte
     if pre_match_analysis:
         user_message += f"📋 CONTEXTE PRÉ-MATCH:\n{pre_match_analysis}\n\n"
-    
+
+    # Ajouter les stats de saison de l'équipe dans la ligue où le match est joué (contexte bref)
+    season_stats_line = format_season_stats_for_prompt(current_season_stats, TEAM_NAME) if current_season_stats else ""
+    if season_stats_line:
+        user_message += f"{season_stats_line}\n\n"
+
     # Ajouter l'historique des matchs
     user_message += f"{match_history_context}\n\n"
     

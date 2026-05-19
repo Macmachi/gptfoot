@@ -1,0 +1,35 @@
+# Local config & secrets (use config.ini.example as a template)
+config.ini
+
+# Generated runtime files
+*.log
+match_analyses.json
+telegram_chat_ids.json
+discord_channels.json
+
+# Local-only folders (not for publication)
+Archives/
+Divers/
+test/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
