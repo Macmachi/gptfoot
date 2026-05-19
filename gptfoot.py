@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.6.0
+# VERSION : v2.6.1
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -900,6 +900,10 @@ async def is_match_today(max_retries=3):
     global current_league_id
     # Variable pour stocker l'ID de la ligue en cours de traitement
     current_league_id = None
+    # Flag pour distinguer "API OK mais aucun match programmé" (fin de saison / intersaison)
+    # de "API réellement indisponible" (5xx, timeout, réseau...). Sans ce flag, le bot
+    # spammait quotidiennement les chats avec "API indisponible" pendant toute l'intersaison.
+    api_call_succeeded = False
 
     for attempt in range(max_retries):
         try:
@@ -912,10 +916,16 @@ async def is_match_today(max_retries=3):
                     try:
                         async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                             if resp.status == 200:
+                                # L'API a répondu correctement, qu'il y ait un match à venir ou non.
+                                api_call_succeeded = True
                                 data = await resp.json()
                                 if data.get('response'):
                                     responses.append(data)
                                     current_league_id = LEAGUE_ID
+                                else:
+                                    # 200 OK mais response vide = pas de prochain match dans cette ligue
+                                    # (typiquement : fin de saison / intersaison). Pas une erreur.
+                                    log_message(f"Aucun match à venir pour la ligue {LEAGUE_ID} (API OK, response vide).")
                             elif resp.status >= 500 and attempt < max_retries - 1:
                                 log_message(f"Erreur serveur {resp.status} pour la ligue {LEAGUE_ID}, retry...")
                                 await asyncio.sleep(2 ** attempt)
@@ -934,19 +944,25 @@ async def is_match_today(max_retries=3):
                         if attempt < max_retries - 1:
                             await asyncio.sleep(2 ** attempt)
                             continue
-            
-            # Si on a au moins une réponse, on sort de la boucle de retry
-            if responses:
+
+            # Si on a au moins une réponse OU si l'API a répondu correctement (même vide),
+            # pas besoin de relancer un retry — il n'y a juste pas de match.
+            if responses or api_call_succeeded:
                 break
         except Exception as e:
             log_message(f"Erreur inattendue dans is_match_today (tentative {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
                 await asyncio.sleep(2 ** attempt)
                 continue
-    
+
     if not responses:
-        log_message(f"Impossible de récupérer les matchs après {max_retries} tentatives")
-        await send_message_to_all_chats("🤖 : Impossible de vérifier les matchs. L'API football est indisponible. Veuillez réessayer plus tard.")
+        if api_call_succeeded:
+            # Cas normal en intersaison / fin de saison : aucune ligue surveillée n'a de match programmé.
+            # On NE notifie PAS les utilisateurs (sinon spam quotidien pendant des semaines).
+            log_message("Aucun match programmé pour l'équipe dans les ligues surveillées (API OK). Probablement hors saison.")
+        else:
+            log_message(f"Impossible de récupérer les matchs après {max_retries} tentatives - API réellement indisponible")
+            await send_message_to_all_chats("🤖 : Impossible de vérifier les matchs. L'API football est indisponible. Veuillez réessayer plus tard.")
         return False, None, None, None, None, None, None, None, None
 
     match_today = False

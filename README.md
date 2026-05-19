@@ -27,6 +27,9 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Support for dozens of languages
 * Configurable AI models (Poe API)
 
+## 🆕 What's New in v2.6.1
+* ✅ **Fix — End-of-season false positive**: `is_match_today()` no longer broadcasts a misleading "API football is unavailable" message when the API returns `200 OK` with an empty `response` array (typical case during the off-season, when no upcoming match is scheduled). The function now distinguishes a real API failure (5xx, timeout, network error) from a successful API call with no match planned, and only notifies users in the former case. During the off-season, the bot stays silent (logs only).
+
 ## 🆕 What's New in v2.6.0
 * ✅ **Season Stats in AI Context**: The current-season record of the followed team (in the league of the day's match) is now injected — in a compact one-liner — into both the pre-match (compomatch) and post-match (endmatch) LLM prompts. The LLM finally knows the team's W/D/L, goals for/against, clean sheets, and 5-match form within that specific competition.
 * ✅ **Single API Call per Match for Season Stats**: The `/teams/statistics` endpoint is called once before the kickoff and the response is cached in memory for the rest of the match (pre-match prompt + post-match prompt + post-match display block). Total cost: **+1 api-football request per match**.
@@ -94,6 +97,9 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 
 * ✅ **[SOLVED — v2.6.0]** AI pre-match and post-match analyses had no awareness of the team's current-season form within the specific competition being played
   * **Resolution**: One `/teams/statistics` call is made before kickoff and cached in memory, then reused in `call_chatgpt_api_compomatch` (start-of-match prompt) and `call_chatgpt_api_endmatch` (end-of-match prompt). Compact one-liner format keeps token usage minimal.
+
+* ✅ **[SOLVED — v2.6.1]** During the off-season, the bot was sending a daily false-positive message claiming "API football is unavailable" because `is_match_today()` treated a valid `200 OK` response with an empty `response` array (no upcoming match) the same way as a real API failure
+  * **Resolution**: Added an `api_call_succeeded` flag to differentiate "API OK but no fixture scheduled" (silent log only — expected during off-season) from "API actually unreachable" (still broadcast to users). No more daily spam between seasons.
 
 ### **Circumvented Issues** 🕹️
 
