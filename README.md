@@ -32,7 +32,7 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * ✅ **Single API Call per Match for Season Stats**: The `/teams/statistics` endpoint is called once before the kickoff and the response is cached in memory for the rest of the match (pre-match prompt + post-match prompt + post-match display block). Total cost: **+1 api-football request per match**.
 * ✅ **Optimized Live Polling Budget**: Live polling target lowered from 90 to 85 polls per match, freeing room for the new season-stats call while staying well under the 100 req/day free quota.
 * ✅ **Visible Season Stats Block in Telegram & Discord**: After the AI end-of-match analysis, a compact stats panel is appended to the message (record, goals, clean sheets, recent form with 🟢⚪🔴 emojis). Fully compatible with Telegram (`parse_mode=Markdown`) and Discord.
-* ✅ **Removed Hard-Coded League IDs**: The previous `if current_league_id == 2 / 207 / 209` logic in the live-polling loop has been replaced by a configurable `[LEAGUE_TYPES]` section in `config.ini`. Any league ID listed in `LEAGUES_WITH_EXTRA_TIME` is treated as potentially going to extra time (+30 min budget). Leagues not listed are treated as regular championships. **The source code is now fully agnostic to country / league / team.**
+* ✅ **Removed Hard-Coded League IDs**: The previous `if current_league_id == X / Y / Z` chain in the live-polling loop has been replaced by a configurable `[LEAGUE_TYPES]` section in `config.ini`. Any league ID listed in `LEAGUES_WITH_EXTRA_TIME` is treated as potentially going to extra time (+30 min budget). Leagues not listed are treated as regular championships. **The source code is now fully agnostic to country / league / team.**
 * ✅ **Public-Repo Hygiene**: Added `.gitignore` (excludes `config.ini`, generated JSON, logs, virtualenv, OS files) and a `config.ini.example` template with neutral placeholders, so the repository can be published without leaking API keys or local data.
 * ✅ **Default Model Updated**: The example config now ships with `Gemini-3-Flash` as the default `MAIN_MODEL` and `TRANSLATION_MODEL`. Any Poe-supported model still works (Grok, GPT-4o, Claude-Sonnet-4, etc.).
 
@@ -177,10 +177,10 @@ The bot is configured via `config.ini` (copy `config.ini.example` first). Sectio
 ### `[LEAGUE_TYPES]` *(optional, new in v2.6.0)*
 * `LEAGUES_WITH_EXTRA_TIME` — Comma-separated league IDs that may go to extra time (cups, knockout phases, continental competitions). Leagues listed here use an extended live-polling budget (+30 min). **Leave empty** if all your monitored leagues are regular championships.
 
-  Example for a setup that includes a national cup with extra time:
+  Example for a setup that includes one knockout competition (cup or continental knockout) where extra time is possible — replace the ID with the actual league ID(s) you monitor:
   ```
   [LEAGUE_TYPES]
-  LEAGUES_WITH_EXTRA_TIME = 209
+  LEAGUES_WITH_EXTRA_TIME = 1234
   ```
 
 ## 📊 Technical Improvements
