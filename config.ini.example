@@ -1,6 +1,6 @@
 [KEYS]
-; Get your Poe API key here: https://poe.com/api_key
-POE_API_KEY = your_poe_api_key_here
+; Get your OpenRouter API key here: https://openrouter.ai/keys
+OPENROUTER_API_KEY = your_openrouter_api_key_here
 ; Contact https://telegram.me/BotFather on Telegram to get your bot token
 TELEGRAM_BOT_TOKEN = your_telegram_token_here
 ; Discord bot token: https://discord.com/developers/applications
@@ -29,16 +29,18 @@ IS_PAID_API = false
 ENABLE_COST_TRACKING = true
 
 [API_MODELS]
-; Main model for match analysis (e.g., Gemini-3-Flash, Grok-4-Fast-Reasoning, GPT-4o, Claude-Sonnet-4)
-MAIN_MODEL = Gemini-3-Flash
+; Main model for match analysis (OpenRouter model slug, e.g., minimax/minimax-m3,
+; openai/gpt-4o, anthropic/claude-3.5-sonnet, google/gemini-2.0-flash-001)
+MAIN_MODEL = minimax/minimax-m3
 ; Model for translations (can be the same or different)
-TRANSLATION_MODEL = Gemini-3-Flash
+TRANSLATION_MODEL = minimax/minimax-m3
 
 [API_PRICING]
 ; Cost per 1 million input tokens in USD (adjust for your model / provider)
-INPUT_COST_PER_1M_TOKENS = 0.21
+; minimax/minimax-m3 on OpenRouter: $0.30 in / $1.20 out per 1M tokens
+INPUT_COST_PER_1M_TOKENS = 0.30
 ; Cost per 1 million output tokens in USD (adjust for your model / provider)
-OUTPUT_COST_PER_1M_TOKENS = 0.51
+OUTPUT_COST_PER_1M_TOKENS = 1.20
 ; Cache discount percentage (e.g., 75 for 75% discount on cached input)
 CACHE_DISCOUNT_PERCENTAGE = 75
 

@@ -1,7 +1,7 @@
 # ⚽ gptfoot (Telegram/Discord bot)
 
 ## 🌐 Overview
-gptfoot is a bot for Telegram and Discord, meticulously designed to track match events for clubs across multiple leagues, all while minimizing message volume. It utilizes cutting-edge AI technology (Poe API with Gemini-3-Flash, Grok, GPT-4o or Claude) to provide live match commentary. The bot offers a broad range of features, from showcasing team lineups to reporting goals, red cards, and delivering comprehensive match analyses, all backed by advanced AI capabilities. It's a game-changer for those looking to stay updated on matches in a seamless and informative way.
+gptfoot is a bot for Telegram and Discord, meticulously designed to track match events for clubs across multiple leagues, all while minimizing message volume. It utilizes cutting-edge AI technology (OpenRouter API with MiniMax-M3, GPT-4o, Claude, Gemini and more) to provide live match commentary. The bot offers a broad range of features, from showcasing team lineups to reporting goals, red cards, and delivering comprehensive match analyses, all backed by advanced AI capabilities. It's a game-changer for those looking to stay updated on matches in a seamless and informative way.
 
 ## 🛠 Features
 * Detection of whether a team is playing a match today in different leagues
@@ -25,7 +25,11 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * The frequency of messages is limited to ensure a pleasant experience for users
 * Works with the free version of api-football (up to 100 calls per day)
 * Support for dozens of languages
-* Configurable AI models (Poe API)
+* Configurable AI models (OpenRouter API)
+
+## 🆕 What's New in v2.7.0
+* ✅ **Migrated from Poe to OpenRouter**: The bot now calls the OpenRouter API (`https://openrouter.ai/api/v1/chat/completions`) instead of Poe. The endpoint is OpenAI-compatible, so response parsing and cost tracking are unchanged. Required `HTTP-Referer` and `X-Title` headers are now sent. The config key is `OPENROUTER_API_KEY` (the old `POE_API_KEY` still works as a fallback for backward compatibility).
+* ✅ **Default Model — MiniMax-M3**: The example config ships with `minimax/minimax-m3` as the default `MAIN_MODEL` and `TRANSLATION_MODEL` ($0.30 in / $1.20 out per 1M tokens). Any OpenRouter model slug works (`openai/gpt-4o`, `anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash-001`, etc.).
 
 ## 🆕 What's New in v2.6.1
 * ✅ **Fix — End-of-season false positive**: `is_match_today()` no longer broadcasts a misleading "API football is unavailable" message when the API returns `200 OK` with an empty `response` array (typical case during the off-season, when no upcoming match is scheduled). The function now distinguishes a real API failure (5xx, timeout, network error) from a successful API call with no match planned, and only notifies users in the former case. During the off-season, the bot stays silent (logs only).
@@ -37,7 +41,7 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * ✅ **Visible Season Stats Block in Telegram & Discord**: After the AI end-of-match analysis, a compact stats panel is appended to the message (record, goals, clean sheets, recent form with 🟢⚪🔴 emojis). Fully compatible with Telegram (`parse_mode=Markdown`) and Discord.
 * ✅ **Removed Hard-Coded League IDs**: The previous `if current_league_id == X / Y / Z` chain in the live-polling loop has been replaced by a configurable `[LEAGUE_TYPES]` section in `config.ini`. Any league ID listed in `LEAGUES_WITH_EXTRA_TIME` is treated as potentially going to extra time (+30 min budget). Leagues not listed are treated as regular championships. **The source code is now fully agnostic to country / league / team.**
 * ✅ **Public-Repo Hygiene**: Added `.gitignore` (excludes `config.ini`, generated JSON, logs, virtualenv, OS files) and a `config.ini.example` template with neutral placeholders, so the repository can be published without leaking API keys or local data.
-* ✅ **Default Model Updated**: The example config now ships with `Gemini-3-Flash` as the default `MAIN_MODEL` and `TRANSLATION_MODEL`. Any Poe-supported model still works (Grok, GPT-4o, Claude-Sonnet-4, etc.).
+* ✅ **Default Model Updated**: The example config previously shipped with `Gemini-3-Flash` as the default `MAIN_MODEL` and `TRANSLATION_MODEL`. As of v2.7.0 the default is the OpenRouter slug `minimax/minimax-m3`.
 
 ## 🆕 What's New in v2.5.0
 * ✅ **Professional Logging**: Rotating log files with automatic cleanup
@@ -150,7 +154,7 @@ python gptfoot.py
 The bot is configured via `config.ini` (copy `config.ini.example` first). Sections:
 
 ### `[KEYS]`
-* `POE_API_KEY` — Your Poe API key (https://poe.com/api_key)
+* `OPENROUTER_API_KEY` — Your OpenRouter API key (https://openrouter.ai/keys)
 * `TELEGRAM_BOT_TOKEN` — Your Telegram bot token (from @BotFather)
 * `DISCORD_BOT_TOKEN` — Your Discord bot token
 * `API_FOOTBALL_KEY` — Your api-football.com API key
@@ -166,7 +170,7 @@ The bot is configured via `config.ini` (copy `config.ini.example` first). Sectio
 * `ENABLE_COST_TRACKING` — Track and log AI API costs (true/false)
 
 ### `[API_MODELS]`
-* `MAIN_MODEL` — AI model for match analysis (e.g. `Gemini-3-Flash`, `Grok-4-Fast-Reasoning`, `GPT-4o`, `Claude-Sonnet-4`)
+* `MAIN_MODEL` — AI model for match analysis (OpenRouter slug, e.g. `minimax/minimax-m3`, `openai/gpt-4o`, `anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash-001`)
 * `TRANSLATION_MODEL` — AI model for translations (can be the same)
 
 ### `[API_PRICING]`

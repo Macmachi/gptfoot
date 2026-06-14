@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.6.1
+# VERSION : v2.7.0
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -35,11 +35,11 @@ def validate_api_keys():
     errors = []
     warnings = []
     
-    # Vérifier POE_API_KEY
-    if not API_KEY or API_KEY == 'your_poe_api_key_here':
-        errors.append("POE_API_KEY n'est pas configurée ou utilise la valeur par défaut")
+    # Vérifier OPENROUTER_API_KEY
+    if not API_KEY or API_KEY in ('your_openrouter_api_key_here', 'your_poe_api_key_here'):
+        errors.append("OPENROUTER_API_KEY n'est pas configurée ou utilise la valeur par défaut")
     elif len(API_KEY) < 10:
-        warnings.append("POE_API_KEY semble trop courte, vérifiez sa validité")
+        warnings.append("OPENROUTER_API_KEY semble trop courte, vérifiez sa validité")
     
     # Vérifier API_FOOTBALL_KEY
     if not API_FOOTBALL_KEY or len(API_FOOTBALL_KEY) < 10:
@@ -92,7 +92,9 @@ try:
     config.read(config_path, encoding='utf-8')
     
     # Récupérer les variables de la section KEYS
-    API_KEY = config['KEYS'].get('POE_API_KEY', '').strip()
+    # Clé OpenRouter (https://openrouter.ai/keys). Rétrocompatibilité : si OPENROUTER_API_KEY
+    # est absente, on retombe sur l'ancienne clé POE_API_KEY.
+    API_KEY = config['KEYS'].get('OPENROUTER_API_KEY', '').strip() or config['KEYS'].get('POE_API_KEY', '').strip()
     TOKEN_TELEGRAM = config['KEYS'].get('TELEGRAM_BOT_TOKEN', '').strip()
     TEAM_ID = config['KEYS'].get('TEAM_ID', '').strip()
     TEAM_NAME = config['KEYS'].get('TEAM_NAME', '').strip()
@@ -114,12 +116,12 @@ try:
     LANGUAGE = config['LANGUAGES'].get('LANGUAGE', 'english')
     
     # Récupérer les modèles API à partir de la section API_MODELS
-    GPT_MODEL_NAME = config['API_MODELS'].get('MAIN_MODEL', 'Grok-4-Fast-Reasoning')
-    GPT_MODEL_NAME_TRANSLATION = config['API_MODELS'].get('TRANSLATION_MODEL', 'Grok-4-Fast-Reasoning')
+    GPT_MODEL_NAME = config['API_MODELS'].get('MAIN_MODEL', 'minimax/minimax-m3')
+    GPT_MODEL_NAME_TRANSLATION = config['API_MODELS'].get('TRANSLATION_MODEL', 'minimax/minimax-m3')
     
     # Récupérer la tarification à partir de la section API_PRICING
-    INPUT_COST_PER_1M_TOKENS = float(config['API_PRICING'].get('INPUT_COST_PER_1M_TOKENS', '0.21'))
-    OUTPUT_COST_PER_1M_TOKENS = float(config['API_PRICING'].get('OUTPUT_COST_PER_1M_TOKENS', '0.51'))
+    INPUT_COST_PER_1M_TOKENS = float(config['API_PRICING'].get('INPUT_COST_PER_1M_TOKENS', '0.30'))
+    OUTPUT_COST_PER_1M_TOKENS = float(config['API_PRICING'].get('OUTPUT_COST_PER_1M_TOKENS', '1.20'))
     CACHE_DISCOUNT_PERCENTAGE = float(config['API_PRICING'].get('CACHE_DISCOUNT_PERCENTAGE', '75'))
 
     # Récupérer la liste des ligues pouvant aller en prolongation (coupes / phases finales)
@@ -1819,12 +1821,12 @@ async def notify_users_max_api_requests_reached():
     message = "🤖 : Le nombre maximum de requêtes à l'api de foot a été atteinte. Je dois malheureusement mettre fin au suivi du match.\n"   
     await send_message_to_all_chats(message)          
 
-# Fonction pour formater les événements bruts en cas d'indisponibilité de l'API Poe
+# Fonction pour formater les événements bruts en cas d'indisponibilité de l'API OpenRouter
 def format_season_stats_for_prompt(season_stats, team_name):
     """
     Version ultra-compacte des stats de saison destinée à être injectée dans
     le prompt LLM (analyse de début et de fin de match). Vise ~50-80 tokens
-    pour ne pas alourdir la consommation Poe en fin de saison.
+    pour ne pas alourdir la consommation OpenRouter en fin de saison.
     Renvoie une string vide si stats indisponibles.
     """
     if not season_stats or not isinstance(season_stats, dict):
@@ -1924,7 +1926,7 @@ def format_season_stats_for_display(season_stats, team_name, league_name):
         return ""
 
 def format_raw_events(events, home_team, away_team):
-    """Formate les événements bruts de l'API football en cas d'indisponibilité de l'API Poe"""
+    """Formate les événements bruts de l'API football en cas d'indisponibilité de l'API OpenRouter"""
     if not events:
         return "Aucun événement enregistré."
     
@@ -1968,7 +1970,7 @@ async def send_end_message(home_team, away_team, home_score, away_score, match_s
     
     # Vérifier si l'analyse est un message d'erreur (commence par "🤖 :")
     if chatgpt_analysis.startswith("🤖 :"):
-        log_message("API Poe indisponible, envoi des événements bruts à la place")
+        log_message("API OpenRouter indisponible, envoi des événements bruts à la place")
         message += "⚠️ Analyse IA indisponible, voici les événements du match :\n\n"
         message += format_raw_events(events, home_team, away_team)
         
@@ -2031,7 +2033,9 @@ async def send_end_message(home_team, away_team, home_score, away_score, match_s
 async def translate_message(message, language):
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_KEY}"
+        "Authorization": f"Bearer {API_KEY}",
+        "HTTP-Referer": "https://github.com/Macmachi/gptfoot",
+        "X-Title": "gptfoot"
     }
         
     log_message(f"La langue détectée n'est pas le français donc on lance la traduction")
@@ -2044,7 +2048,7 @@ async def translate_message(message, language):
     
     async with httpx.AsyncClient() as client:
         try:
-            translation_response = await client.post("https://api.poe.com/v1/chat/completions", headers=headers, json=translation_data, timeout=60.0)
+            translation_response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=translation_data, timeout=60.0)
             translation_response.raise_for_status()
             response_data = translation_response.json()
             translated_message = response_data["choices"][0]["message"]["content"].strip()
@@ -2057,7 +2061,7 @@ async def translate_message(message, language):
             
             return translated_message
         except httpx.HTTPError as e:
-            log_message(f"Error during message translation with the Poe API: {e}")
+            log_message(f"Error during message translation with the OpenRouter API: {e}")
             return f"🤖 : Sorry, an error occurred while communicating with the translation API."
         except Exception as e:
             log_message(f"Unexpected error during message translation: {e}")
@@ -2067,14 +2071,16 @@ async def translate_message(message, language):
 async def call_chatgpt_api(data, max_retries=3):
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_KEY}"
+        "Authorization": f"Bearer {API_KEY}",
+        "HTTP-Referer": "https://github.com/Macmachi/gptfoot",
+        "X-Title": "gptfoot"
     }
     
     for attempt in range(max_retries):
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                # Appel initial à Grok-4-Fast-Reasoning pour obtenir le message
-                response_json = await client.post("https://api.poe.com/v1/chat/completions", headers=headers, json=data)
+                # Appel à l'API OpenRouter (compatible OpenAI) pour obtenir le message
+                response_json = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
                 response_json.raise_for_status()
                 response_data = response_json.json()
                 
@@ -2098,19 +2104,19 @@ async def call_chatgpt_api(data, max_retries=3):
                 return message
 
         except httpx.TimeoutException as e:
-            log_message(f"Timeout lors de l'appel à l'API Poe (tentative {attempt + 1}/{max_retries}) : {e}")
+            log_message(f"Timeout lors de l'appel à l'API OpenRouter (tentative {attempt + 1}/{max_retries}) : {e}")
             if attempt < max_retries - 1:
                 await asyncio.sleep(2 ** attempt)  # Backoff exponentiel
                 continue
-            return f"🤖 : Désolé, l'API Poe ne répond pas (timeout). Veuillez réessayer plus tard."
+            return f"🤖 : Désolé, l'API OpenRouter ne répond pas (timeout). Veuillez réessayer plus tard."
         
         except httpx.HTTPStatusError as e:
             status_code = e.response.status_code
-            log_message(f"Erreur HTTP {status_code} lors de l'appel à l'API Poe (tentative {attempt + 1}/{max_retries}) : {e}")
+            log_message(f"Erreur HTTP {status_code} lors de l'appel à l'API OpenRouter (tentative {attempt + 1}/{max_retries}) : {e}")
             
             # Gestion spécifique des codes d'erreur
             if status_code == 401:
-                log_message("Erreur d'authentification : Vérifiez votre clé API Poe")
+                log_message("Erreur d'authentification : Vérifiez votre clé API OpenRouter")
                 return f"🤖 : Erreur d'authentification API. Vérifiez votre clé API."
             elif status_code == 429:
                 log_message("Rate limit atteint, attente avant retry...")
@@ -2123,23 +2129,23 @@ async def call_chatgpt_api(data, max_retries=3):
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                return f"🤖 : L'API Poe rencontre des problèmes. Veuillez réessayer plus tard."
+                return f"🤖 : L'API OpenRouter rencontre des problèmes. Veuillez réessayer plus tard."
             else:
                 log_message(f"Erreur HTTP {status_code}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                return f"🤖 : Erreur lors de la communication avec l'API Poe (code {status_code})."
+                return f"🤖 : Erreur lors de la communication avec l'API OpenRouter (code {status_code})."
         
         except httpx.NetworkError as e:
-            log_message(f"Erreur réseau lors de l'appel à l'API Poe (tentative {attempt + 1}/{max_retries}) : {e}")
+            log_message(f"Erreur réseau lors de l'appel à l'API OpenRouter (tentative {attempt + 1}/{max_retries}) : {e}")
             if attempt < max_retries - 1:
                 await asyncio.sleep(2 ** attempt)
                 continue
             return f"🤖 : Erreur réseau. Vérifiez votre connexion Internet."
         
         except Exception as e:
-            log_message(f"Erreur inattendue lors de l'appel à l'API Poe (tentative {attempt + 1}/{max_retries}) : {e}")
+            log_message(f"Erreur inattendue lors de l'appel à l'API OpenRouter (tentative {attempt + 1}/{max_retries}) : {e}")
             if attempt < max_retries - 1:
                 await asyncio.sleep(2 ** attempt)
                 continue
