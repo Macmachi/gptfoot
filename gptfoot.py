@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.7.0
+# VERSION : v2.8.0
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -61,7 +61,26 @@ def validate_api_keys():
             errors.append("TEAM_ID doit être un nombre positif")
     except (ValueError, TypeError):
         errors.append("TEAM_ID doit être un nombre valide")
-    
+
+    # Vérifier LEAGUE_IDS
+    if not LEAGUE_IDS_STR:
+        errors.append("LEAGUE_IDS n'est pas configurée (liste d'IDs séparés par des virgules)")
+    else:
+        try:
+            league_ids = [int(x.strip()) for x in LEAGUE_IDS_STR.split(',') if x.strip()]
+            if not league_ids:
+                errors.append("LEAGUE_IDS ne contient aucun ID de ligue valide")
+        except ValueError:
+            errors.append("LEAGUE_IDS doit être une liste d'IDs numériques séparés par des virgules (ex: 39,2)")
+
+    # Vérifier SEASON_ID (utilisé comme année par l'API football et les prompts IA)
+    try:
+        season_year = int(SEASON_ID)
+        if not (2000 <= season_year <= 2100):
+            warnings.append(f"SEASON_ID ({SEASON_ID}) ne ressemble pas à une année valide")
+    except (ValueError, TypeError):
+        errors.append("SEASON_ID doit être une année à 4 chiffres (ex: 2025)")
+
     # Afficher les erreurs et warnings
     if errors:
         print("\n" + "="*60)
@@ -157,7 +176,11 @@ interruption_message_sent = False
 # Convertir la chaîne du fuseau horaire en objet pytz
 server_timezone = pytz.timezone(SERVER_TIMEZONE_STR)
 # Convertir la chaîne de LEAGUE_IDS en une liste d'entiers
-LEAGUE_IDS = [int(id) for id in LEAGUE_IDS_STR.split(',')]
+# (les valeurs invalides ont déjà été signalées par validate_api_keys)
+try:
+    LEAGUE_IDS = [int(x.strip()) for x in LEAGUE_IDS_STR.split(',') if x.strip()]
+except ValueError:
+    LEAGUE_IDS = []
 # Empêche notre variable 'main' de se terminer après avoir créé la tâche pour lancer notre bot Discord.
 is_running = True
 # Défini notre variable pour stocker les événements envoyé pendant le match
@@ -294,7 +317,46 @@ def clear_log():
     except Exception as e:
         log_message(f"Erreur lors du vidage du log: {e}", "ERROR")
 
+### DEBUT DE GESTION DES CLIENTS HTTP PARTAGES
+
+# Clients HTTP partagés (réutilisation des connexions au lieu d'une session par requête).
+# Créés paresseusement dans la boucle asyncio, fermés à l'arrêt via close_http_clients().
+_http_session = None
+_openrouter_client = None
+
+async def get_http_session():
+    """Renvoie la session aiohttp partagée (API football), en la créant si besoin."""
+    global _http_session
+    if _http_session is None or _http_session.closed:
+        _http_session = aiohttp.ClientSession()
+    return _http_session
+
+async def get_openrouter_client():
+    """Renvoie le client httpx partagé (API OpenRouter), en le créant si besoin."""
+    global _openrouter_client
+    if _openrouter_client is None or _openrouter_client.is_closed:
+        _openrouter_client = httpx.AsyncClient(timeout=60.0)
+    return _openrouter_client
+
+async def close_http_clients():
+    """Ferme proprement les clients HTTP partagés à l'arrêt du script."""
+    global _http_session, _openrouter_client
+    if _http_session is not None and not _http_session.closed:
+        await _http_session.close()
+    if _openrouter_client is not None and not _openrouter_client.is_closed:
+        await _openrouter_client.aclose()
+
+### FIN DE GESTION DES CLIENTS HTTP PARTAGES
+
 ### DEBUT DE GESTION DU STOCKAGE DES ANALYSES DE MATCHS
+
+# Écriture JSON atomique : on écrit dans un fichier temporaire puis on remplace la cible,
+# pour éviter un fichier corrompu si le script est interrompu en pleine écriture.
+def write_json_atomic(path, data):
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, path)
 
 # Fonction pour charger l'historique des matchs depuis le fichier JSON
 def load_match_history():
@@ -319,8 +381,7 @@ def load_match_history():
 def save_match_history(data):
     """Sauvegarde l'historique des matchs dans match_analyses.json"""
     try:
-        with open(match_analyses_path, "w", encoding="utf-8") as file:
-            json.dump(data, file, ensure_ascii=False, indent=2)
+        write_json_atomic(match_analyses_path, data)
         log_message(f"Historique des matchs sauvegardé : {len(data.get('matches', []))} matchs")
     except Exception as e:
         log_message(f"Erreur lors de la sauvegarde de l'historique des matchs : {e}")
@@ -334,7 +395,7 @@ def save_match_analysis(fixture_id, match_info, pre_match_analysis, post_match_a
         # Créer l'entrée du match
         match_entry = {
             "fixture_id": fixture_id,
-            "date": match_info.get("date", datetime.datetime.now().isoformat()),
+            "date": match_info.get("date", datetime.datetime.now(server_timezone).isoformat()),
             "league": match_info.get("league", "Unknown"),
             "round": match_info.get("round", "Unknown"),
             "teams": match_info.get("teams", {}),
@@ -376,7 +437,7 @@ def get_last_n_matches(n=5):
     try:
         data = load_match_history()
         matches = data.get("matches", [])
-        return matches[-n:] if len(matches) >= n else matches
+        return matches[-n:]
     except Exception as e:
         log_message(f"Erreur lors de la récupération des derniers matchs : {e}")
         return []
@@ -419,18 +480,26 @@ def log_exit(normal_exit=True, *args, **kwargs):
 # Enregistrez la fonction pour qu'elle s'exécute lorsque le script se termine normalement.
 atexit.register(log_exit)
 
-# Liste de signaux à gérer. Les signaux non disponibles sur la plateforme ne seront pas inclus.
-signals_to_handle = [getattr(signal, signame, None) for signame in ["SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT"]]
-signals_to_handle = [sig for sig in signals_to_handle if sig is not None]
+# Gestion des signaux :
+# - SIGHUP est ignoré pour survivre à la fermeture du terminal avec nohup.
+# - SIGINT (Ctrl+C), SIGTERM (kill / systemctl stop) et SIGQUIT loggent puis arrêtent
+#   proprement le script (sans ça, seul un SIGKILL pouvait terminer le processus).
+def handle_termination_signal(signum, frame):
+    try:
+        sig_name = signal.Signals(signum).name
+    except ValueError:
+        sig_name = str(signum)
+    log_message(f"Signal {sig_name} reçu, arrêt du script.")
+    sys.exit(0)
 
-# Gestion des signaux pour détecter la fermeture inattendue.
-for sig in signals_to_handle:
-    # Evite de marquer que le script se ferme alors que ce n'est pas le cas avec nohup et la fermeture du terminal!
-    sighup = getattr(signal, 'SIGHUP', None)
-    if sig == signal.SIGINT or (sighup is not None and sig == sighup):
-        signal.signal(sig, signal.SIG_IGN)
-    else:
-        signal.signal(sig, lambda signal, frame: log_exit(False))
+_sighup = getattr(signal, 'SIGHUP', None)
+if _sighup is not None:
+    signal.signal(_sighup, signal.SIG_IGN)
+
+for _signame in ("SIGINT", "SIGTERM", "SIGQUIT"):
+    _sig = getattr(signal, _signame, None)
+    if _sig is not None:
+        signal.signal(_sig, handle_termination_signal)
 
 ### FIN DE GESTION DE LA FERMETURE DU SCRIPT
 ### DEBUT DE GESTION DU BOT DISCORD
@@ -448,16 +517,18 @@ async def register(ctx):
     try:
         log_message("Commande !register reçue")
         if not os.path.exists(discord_channels_path):
-            with open(discord_channels_path, "w") as file:
-                json.dump([], file)
-                
-        with open(discord_channels_path, "r") as file:
-            channels = json.load(file)
+            write_json_atomic(discord_channels_path, [])
+
+        try:
+            with open(discord_channels_path, "r") as file:
+                channels = json.load(file)
+        except json.JSONDecodeError:
+            log_message("discord_channels.json corrompu, réinitialisation.", "WARNING")
+            channels = []
 
         if ctx.channel.id not in channels:
             channels.append(ctx.channel.id)
-            with open(discord_channels_path, "w") as file:
-                json.dump(channels, file)
+            write_json_atomic(discord_channels_path, channels)
             await ctx.send("Ce channel a été enregistré.")
             log_message(f"Channel {ctx.channel.id} a été enregistré.")
         else:
@@ -500,8 +571,7 @@ def initialize_chat_ids_file():
     """
     if not os.path.exists("telegram_chat_ids.json"):
         try:
-            with open("telegram_chat_ids.json", "w") as file:
-                json.dump([], file)
+            write_json_atomic("telegram_chat_ids.json", [])
         except IOError as e:
             log_message(f"Erreur lors de la création du fichier telegram_chat_ids.json : {e}")
 
@@ -512,15 +582,18 @@ async def on_start(message: types.Message):
     log_message(f"Fonction on_start() appelée pour le chat {chat_id}")
 
     # Récupérez les ID de chat existants à partir du fichier JSON
-    with open("telegram_chat_ids.json", "r") as file:
-        chat_ids = json.load(file)
+    try:
+        with open("telegram_chat_ids.json", "r") as file:
+            chat_ids = json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        log_message("telegram_chat_ids.json manquant ou corrompu, réinitialisation.", "WARNING")
+        chat_ids = []
 
     # Ajoutez l'ID de chat au fichier JSON s'il n'est pas déjà présent
     if chat_id not in chat_ids:
         chat_ids.append(chat_id)
 
-        with open("telegram_chat_ids.json", "w") as file:
-            json.dump(chat_ids, file)
+        write_json_atomic("telegram_chat_ids.json", chat_ids)
 
         await message.reply("Le bot a été démarré et l'ID du chat a été enregistré.")
         log_message(f"Le bot a été démarré et l'ID du chat {chat_id} a été enregistré.")
@@ -534,19 +607,27 @@ async def on_start(message: types.Message):
 async def check_match_periodically():
 
     while True:
-        now = datetime.datetime.now()
-        target_time = datetime.datetime(now.year, now.month, now.day, 9, 0, 0)
+        # Heure "aware" dans le fuseau configuré (et non celui de l'OS)
+        now = datetime.datetime.now(server_timezone)
+        target_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
 
-        if now > target_time:
+        if now >= target_time:
             target_time += datetime.timedelta(days=1)
 
         seconds_until_target_time = (target_time - now).total_seconds()
         log_message(f"Attente de {seconds_until_target_time} secondes jusqu'à la prochaine vérification des matchs (09:00).")
         await asyncio.sleep(seconds_until_target_time)
-        
-        # Vérifiez les matchs 
+
+        # Vérifiez les matchs. Toute exception est capturée ici : sans ça, une erreur
+        # (ex: RateLimitExceededError propagée par check_events) tuerait cette tâche
+        # et le bot ne vérifierait plus jamais les matchs jusqu'au redémarrage.
         log_message("Vérification du match en cours...")
-        await check_matches()
+        try:
+            await check_matches()
+        except RateLimitExceededError as e:
+            log_message(f"Suivi du match arrêté (quota API atteint) : {e}. Reprise à la prochaine vérification quotidienne.", "WARNING")
+        except Exception as e:
+            log_message(f"Erreur inattendue dans check_matches : {e}. Reprise à la prochaine vérification quotidienne.", "ERROR")
     
 # Vérifie si un match est prévu aujourd'hui et effectue les actions appropriées, comme envoyer des messages de début et de fin de match, et vérifier les événements pendant le match.
 async def check_matches():
@@ -585,16 +666,17 @@ async def check_matches():
         log_message(f"[COST_TRACKING] Début du suivi des coûts pour le match")
         # Vérifie que match_start_time n'est pas None et qu'il a des attributs hour et minute.
         if match_start_time and hasattr(match_start_time, 'hour') and hasattr(match_start_time, 'minute'):
-            now = datetime.datetime.now()
+            # Heure "aware" dans le fuseau configuré, cohérente avec match_start_time
+            now = datetime.datetime.now(server_timezone)
             match_start_datetime = now.replace(hour=match_start_time.hour, minute=match_start_time.minute, second=0, microsecond=0)
             seconds_until_match_start = (match_start_datetime - now).total_seconds()
             log_message(f"Il reste {seconds_until_match_start} secondes avant le début du match.")
-            # Calculer le temps pour envoyer le message 10 minutes avant le début du match
+            # Calculer le temps pour envoyer le message 15 minutes avant le début du match
             seconds_until_message = max(0, seconds_until_match_start - 900)  # 900 secondes = 15 minutes
             # On envoie le message pour annoncer qu'il y a un match aujourd'hui
             await send_match_today_message(match_start_time, fixture_id, current_league_id, teams, league, round_info, venue, city)
-           
-            # Attendre jusqu'à l'heure d'envoi du message 10 minutes avant le début du match
+
+            # Attendre jusqu'à l'heure d'envoi du message 15 minutes avant le début du match
             await asyncio.sleep(seconds_until_message)
             # Envoyer le message si IS_PAID_API est vrai
             if IS_PAID_API:
@@ -605,7 +687,7 @@ async def check_matches():
             else:
                 # Attendre jusqu'au début du match pour envoyer la compo et voir le match a réellement commencé si on utilise l'api free pour limiter les calls à l'api
                 # On vérifie pas ici si le match a déjà commencé car la structure du code fait en sorte qu'on puisse pas lancer le script pendant un match qui a commencé pour récuprer ses infos il faut attendre les matchs suivants.
-                remaining_seconds = seconds_until_match_start - seconds_until_message
+                remaining_seconds = max(0, seconds_until_match_start - seconds_until_message)
                 await asyncio.sleep(remaining_seconds)
                 log_message(f"Fin de l'attente jusqu'à l'heure prévu de début de match")
                 # Attendez que le match débute réellement
@@ -645,25 +727,24 @@ async def get_team_season_statistics(league_id, team_id, season):
     }
 
     try:
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers) as resp:
-                remaining_calls_per_day = int(resp.headers.get('x-ratelimit-requests-remaining', 0))
-                log_message(f"Nombre d'appels à l'api restants : {remaining_calls_per_day}")
+        session = await get_http_session()
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            remaining_calls_per_day = int(resp.headers.get('x-ratelimit-requests-remaining', 0))
+            log_message(f"Nombre d'appels à l'api restants : {remaining_calls_per_day}")
 
-                # Tolérant : on ne raise pas, on skip si trop bas
-                if remaining_calls_per_day < 2:
-                    log_message("Quota API trop bas pour récupérer les stats de saison, skip.", "WARNING")
-                    return None
+            # Tolérant : on ne raise pas, on skip si trop bas
+            if remaining_calls_per_day < 2:
+                log_message("Quota API trop bas pour récupérer les stats de saison, skip.", "WARNING")
+                return None
 
-                resp.raise_for_status()
-                data = await resp.json()
+            resp.raise_for_status()
+            data = await resp.json()
 
-                if not data.get('response'):
-                    log_message("Pas de données récupérées depuis get_team_season_statistics", "WARNING")
-                    return None
+            if not data.get('response'):
+                log_message("Pas de données récupérées depuis get_team_season_statistics", "WARNING")
+                return None
 
-                return data['response']
+            return data['response']
 
     except asyncio.TimeoutError:
         log_message("Timeout lors de la récupération des stats de saison", "ERROR")
@@ -687,25 +768,24 @@ async def get_match_predictions(fixture_id):
     }
 
     try:
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, headers=headers) as resp:
-                remaining_calls_per_day = int(resp.headers.get('x-ratelimit-requests-remaining', 0))
-                log_message(f"Nombre d'appels à l'api restants : {remaining_calls_per_day}")
+        session = await get_http_session()
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            remaining_calls_per_day = int(resp.headers.get('x-ratelimit-requests-remaining', 0))
+            log_message(f"Nombre d'appels à l'api restants : {remaining_calls_per_day}")
 
-                if remaining_calls_per_day < 3:
-                    log_message(f"#####\nLe nombre d'appels à l'API est dépassé. Le suivi du match est stoppé.\n#####", "WARNING")
-                    await notify_users_max_api_requests_reached()
-                    raise RateLimitExceededError("Le nombre d'appels maximum à l'API est dépassé.")
+            if remaining_calls_per_day < 3:
+                log_message(f"#####\nLe nombre d'appels à l'API est dépassé. Le suivi du match est stoppé.\n#####", "WARNING")
+                await notify_users_max_api_requests_reached()
+                raise RateLimitExceededError("Le nombre d'appels maximum à l'API est dépassé.")
 
-                resp.raise_for_status()
-                data = await resp.json()
-                
-                if not data.get('response'):
-                    log_message(f"Pas de données récupérées depuis get_match_predictions", "WARNING")
-                    return None
+            resp.raise_for_status()
+            data = await resp.json()
 
-                return data['response'][0]['predictions']
+            if not data.get('response'):
+                log_message(f"Pas de données récupérées depuis get_match_predictions", "WARNING")
+                return None
+
+            return data['response'][0]['predictions']
 
     except asyncio.TimeoutError:
         log_message(f"Timeout lors de la récupération des prédictions pour fixture {fixture_id}", "ERROR")
@@ -794,34 +874,34 @@ async def get_check_match_status(fixture_id, max_retries=3):
 
     for attempt in range(max_retries):
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                    # Vérifiez le nombre d'appels restants par jour
-                    remaining_calls_per_day = int(resp.headers.get('x-ratelimit-requests-remaining', 0))
-                    log_message(f"Nombre d'appels à l'api restants : {remaining_calls_per_day}")
-                    
-                    #Permet de sortir si on reste bloqué dans cette fonction pour x raisons
-                    #3 car on check 3 league à la sortie
-                    if remaining_calls_per_day < 3:
-                        log_message(f"#####\nLe nombre d'appels à l'API est dépassé. Le suivi du match est stoppé.\n#####")
-                        await notify_users_max_api_requests_reached()
-                        raise RateLimitExceededError("Le nombre d'appels maximum à l'API est dépassé.")
-                    
-                    # Vérifier le code de statut HTTP
-                    if resp.status != 200:
-                        log_message(f"Erreur HTTP {resp.status} de l'API football (tentative {attempt + 1}/{max_retries})")
-                        if resp.status >= 500 and attempt < max_retries - 1:
-                            await asyncio.sleep(2 ** attempt)
-                            continue
-                        elif resp.status == 429 and attempt < max_retries - 1:
-                            await asyncio.sleep(5 * (2 ** attempt))
-                            continue
-                        return None, None, None, None
-                        
-                    data = await resp.json()
-                    if not data.get('response'):
-                        log_message(f"Pas de données récupérées depuis get_check_match_status")
-                        return None, None, None, None
+            session = await get_http_session()
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                # Vérifiez le nombre d'appels restants par jour
+                remaining_calls_per_day = int(resp.headers.get('x-ratelimit-requests-remaining', 0))
+                log_message(f"Nombre d'appels à l'api restants : {remaining_calls_per_day}")
+
+                #Permet de sortir si on reste bloqué dans cette fonction pour x raisons
+                #3 car on check 3 league à la sortie
+                if remaining_calls_per_day < 3:
+                    log_message(f"#####\nLe nombre d'appels à l'API est dépassé. Le suivi du match est stoppé.\n#####")
+                    await notify_users_max_api_requests_reached()
+                    raise RateLimitExceededError("Le nombre d'appels maximum à l'API est dépassé.")
+
+                # Vérifier le code de statut HTTP
+                if resp.status != 200:
+                    log_message(f"Erreur HTTP {resp.status} de l'API football (tentative {attempt + 1}/{max_retries})")
+                    if resp.status >= 500 and attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    elif resp.status == 429 and attempt < max_retries - 1:
+                        await asyncio.sleep(5 * (2 ** attempt))
+                        continue
+                    return None, None, None, None
+
+                data = await resp.json()
+                if not data.get('response'):
+                    log_message(f"Pas de données récupérées depuis get_check_match_status")
+                    return None, None, None, None
 
             fixture = data['response'][0]
             match_status = fixture['fixture']['status']['short']
@@ -884,6 +964,10 @@ async def get_check_match_status(fixture_id, max_retries=3):
                 await asyncio.sleep(2 ** attempt)
                 continue
             return None, None, None, None
+        except RateLimitExceededError:
+            # Ne pas avaler l'erreur de quota dans le except générique : elle doit
+            # remonter pour stopper le suivi du match proprement.
+            raise
         except Exception as e:
             log_message(f"Erreur inattendue lors de la requête à l'API football (tentative {attempt + 1}/{max_retries}): {e}")
             if attempt < max_retries - 1:
@@ -909,43 +993,43 @@ async def is_match_today(max_retries=3):
 
     for attempt in range(max_retries):
         try:
-            async with aiohttp.ClientSession() as session:
-                for LEAGUE_ID in LEAGUE_IDS:
-                    url = f"https://v3.football.api-sports.io/fixtures?team={TEAM_ID}&league={LEAGUE_ID}&next=1"
-                    headers = {
-                        "x-apisports-key": API_FOOTBALL_KEY
-                    }
-                    try:
-                        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                            if resp.status == 200:
-                                # L'API a répondu correctement, qu'il y ait un match à venir ou non.
-                                api_call_succeeded = True
-                                data = await resp.json()
-                                if data.get('response'):
-                                    responses.append(data)
-                                    current_league_id = LEAGUE_ID
-                                else:
-                                    # 200 OK mais response vide = pas de prochain match dans cette ligue
-                                    # (typiquement : fin de saison / intersaison). Pas une erreur.
-                                    log_message(f"Aucun match à venir pour la ligue {LEAGUE_ID} (API OK, response vide).")
-                            elif resp.status >= 500 and attempt < max_retries - 1:
-                                log_message(f"Erreur serveur {resp.status} pour la ligue {LEAGUE_ID}, retry...")
-                                await asyncio.sleep(2 ** attempt)
-                                continue
-                            elif resp.status == 429 and attempt < max_retries - 1:
-                                log_message(f"Rate limit pour la ligue {LEAGUE_ID}, attente...")
-                                await asyncio.sleep(5 * (2 ** attempt))
-                                continue
-                    except asyncio.TimeoutError:
-                        log_message(f"Timeout pour la ligue {LEAGUE_ID} (tentative {attempt + 1}/{max_retries})")
-                        if attempt < max_retries - 1:
+            session = await get_http_session()
+            for LEAGUE_ID in LEAGUE_IDS:
+                url = f"https://v3.football.api-sports.io/fixtures?team={TEAM_ID}&league={LEAGUE_ID}&next=1"
+                headers = {
+                    "x-apisports-key": API_FOOTBALL_KEY
+                }
+                try:
+                    async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                        if resp.status == 200:
+                            # L'API a répondu correctement, qu'il y ait un match à venir ou non.
+                            api_call_succeeded = True
+                            data = await resp.json()
+                            if data.get('response'):
+                                responses.append(data)
+                                current_league_id = LEAGUE_ID
+                            else:
+                                # 200 OK mais response vide = pas de prochain match dans cette ligue
+                                # (typiquement : fin de saison / intersaison). Pas une erreur.
+                                log_message(f"Aucun match à venir pour la ligue {LEAGUE_ID} (API OK, response vide).")
+                        elif resp.status >= 500 and attempt < max_retries - 1:
+                            log_message(f"Erreur serveur {resp.status} pour la ligue {LEAGUE_ID}, retry...")
                             await asyncio.sleep(2 ** attempt)
                             continue
-                    except aiohttp.ClientError as e:
-                        log_message(f"Erreur réseau pour la ligue {LEAGUE_ID} (tentative {attempt + 1}/{max_retries}): {e}")
-                        if attempt < max_retries - 1:
-                            await asyncio.sleep(2 ** attempt)
+                        elif resp.status == 429 and attempt < max_retries - 1:
+                            log_message(f"Rate limit pour la ligue {LEAGUE_ID}, attente...")
+                            await asyncio.sleep(5 * (2 ** attempt))
                             continue
+                except asyncio.TimeoutError:
+                    log_message(f"Timeout pour la ligue {LEAGUE_ID} (tentative {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                except aiohttp.ClientError as e:
+                    log_message(f"Erreur réseau pour la ligue {LEAGUE_ID} (tentative {attempt + 1}/{max_retries}): {e}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
 
             # Si on a au moins une réponse OU si l'API a répondu correctement (même vide),
             # pas besoin de relancer un retry — il n'y a juste pas de match.
@@ -988,7 +1072,8 @@ async def is_match_today(max_retries=3):
             match_date = datetime.datetime.strptime(fixture_data['date'], '%Y-%m-%dT%H:%M:%S%z')
             match_date = match_date.astimezone(server_timezone)
             match_date = match_date.date()
-            today = datetime.date.today()
+            # Date du jour dans le fuseau configuré (et non celui de l'OS)
+            today = datetime.datetime.now(server_timezone).date()
 
             if match_date == today:
                 match_today = True
@@ -1020,35 +1105,34 @@ async def get_team_live_events(fixture_id):
     }
 
     try:
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(events_url, headers=headers) as events_response:
-                # Vérifiez le nombre d'appels restants par jour
-                remaining_calls_per_day = int(events_response.headers.get('x-ratelimit-requests-remaining', 0))
-                log_message(f"Nombre d'appels à l'api restants : {remaining_calls_per_day}")
-                
-                # 3 car on check 3 league à la sortie
-                if remaining_calls_per_day < 3:
-                    await notify_users_max_api_requests_reached()
-                    log_message(f"#####\nLe nombre d'appels à l'API est dépassé. Le suivi du match est stoppé.\n#####", "WARNING")
-                    raise RateLimitExceededError("Le nombre d'appels maximum à l'API est dépassé.")
-                
-                events_response.raise_for_status()
-                events_data = await events_response.json()
-                
-                if not events_data.get('response'):
-                    log_message("Pas de réponse de l'API pour get_team_live_events", "WARNING")
-                    return None, None, None, None, None
-                    
-                match_info = events_data['response'][0]
-                events = match_info['events']
-                match_status = match_info['fixture']['status']['short']
-                elapsed_time = match_info['fixture']['status']['elapsed']
-                match_data = match_info
-                log_message(f"Temps écoulé du match : {elapsed_time}\n")
-                match_statistics = match_info['statistics']
-                
-                return events, match_status, elapsed_time, match_data, match_statistics
+        session = await get_http_session()
+        async with session.get(events_url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as events_response:
+            # Vérifiez le nombre d'appels restants par jour
+            remaining_calls_per_day = int(events_response.headers.get('x-ratelimit-requests-remaining', 0))
+            log_message(f"Nombre d'appels à l'api restants : {remaining_calls_per_day}")
+
+            # 3 car on check 3 league à la sortie
+            if remaining_calls_per_day < 3:
+                await notify_users_max_api_requests_reached()
+                log_message(f"#####\nLe nombre d'appels à l'API est dépassé. Le suivi du match est stoppé.\n#####", "WARNING")
+                raise RateLimitExceededError("Le nombre d'appels maximum à l'API est dépassé.")
+
+            events_response.raise_for_status()
+            events_data = await events_response.json()
+
+            if not events_data.get('response'):
+                log_message("Pas de réponse de l'API pour get_team_live_events", "WARNING")
+                return None, None, None, None, None
+
+            match_info = events_data['response'][0]
+            events = match_info['events']
+            match_status = match_info['fixture']['status']['short']
+            elapsed_time = match_info['fixture']['status']['elapsed']
+            match_data = match_info
+            log_message(f"Temps écoulé du match : {elapsed_time}\n")
+            match_statistics = match_info['statistics']
+
+            return events, match_status, elapsed_time, match_data, match_statistics
                 
     except asyncio.TimeoutError:
         log_message(f"Timeout lors de la récupération des événements pour fixture {fixture_id}", "ERROR")
@@ -1103,29 +1187,35 @@ async def handle_halftime(fixture_id, match_status, IS_PAID_API):
 
 # Fonction helper pour gérer les tirs au but
 async def handle_penalty_shootout(fixture_id, penalty_message_sent, IS_PAID_API):
-    """Gère la logique des tirs au but"""
+    """Gère la séance de tirs au but (statut 'P' = séance en cours).
+    ATTENTION : 'PEN' est un statut FINAL (match terminé après tirs au but),
+    il est traité comme une fin de match dans check_events — boucler sur 'PEN'
+    ne se terminerait jamais et viderait le quota API."""
     if not penalty_message_sent:
-        log_message("Séance de tir au but : attente de 20 minutes la fin des pénos pour envoyer les informations du match restants + fin de match pour limiter le nombre d'appels à l'api !")
+        log_message("Séance de tirs au but détectée : notification envoyée aux utilisateurs")
         await pause_for_penalty_shootout()
         penalty_message_sent = True
-    
+
     if IS_PAID_API:
-        wait_time = 30
-    else:
-        await asyncio.sleep(1200)  # 20 minutes
-        wait_time = 300
-    
-    # Boucle pour vérifier le statut du match après les pénos
+        # API payante : on rafraîchit simplement les données. La boucle principale
+        # continue de tourner et commente chaque tir au but réussi (statut 'P').
+        events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
+        return penalty_message_sent, events, match_status, elapsed_time, match_data, match_statistics
+
+    # API gratuite : longue pause pour couvrir la séance, puis polling jusqu'à sa fin
+    log_message("Attente de 20 minutes pour couvrir la séance de tirs au but (API gratuite) : le résumé sera envoyé en fin de match")
+    await asyncio.sleep(1200)  # 20 minutes
+
     while True:
-        log_message(f"On vérifie si les pénos (PEN) sont terminés")
+        log_message("On vérifie si la séance de tirs au but (P) est terminée")
         events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
         log_message("Données récupérées de get_team_live_events; Statistiques de match : (pas log), Status de match : {}, Events {}, match_data : (pas log)".format(match_status, events))
-        
-        if match_status != 'PEN':
-            log_message(f"Le match a repris (statut actuel : {match_status}), continuation de l'exécution du code")
+
+        if match_status != 'P':
+            log_message(f"La séance de tirs au but est terminée (statut actuel : {match_status}), continuation de l'exécution du code")
             return penalty_message_sent, events, match_status, elapsed_time, match_data, match_statistics
-        
-        await asyncio.sleep(wait_time)
+
+        await asyncio.sleep(300)
 
 # Fonction helper pour gérer les interruptions
 async def handle_interruption(fixture_id, interruption_message_sent, IS_PAID_API):
@@ -1144,14 +1234,14 @@ async def handle_interruption(fixture_id, interruption_message_sent, IS_PAID_API
     
     # Boucle pour vérifier le statut du match après l'interruption
     while True:
-        log_message(f"On vérifie si l'interruption est terminée (statut actuel : INT)")
+        log_message(f"On vérifie si l'interruption est terminée (statut actuel : INT/SUSP)")
         events, match_status, elapsed_time, match_data, match_statistics = await get_team_live_events(fixture_id)
         log_message(f"Données récupérées de get_team_live_events;\n Statistiques de match : (pas log),\n Status de match : {match_status},\n Events {events},\n match_data : (pas log)\n")
-        
-        if match_status != 'INT':
+
+        if match_status not in ('INT', 'SUSP'):
             log_message(f"Le match a repris (statut actuel : {match_status}), continuation de l'execution du code")
             return interruption_message_sent, events, match_status, elapsed_time, match_data, match_statistics
-        
+
         await asyncio.sleep(wait_time)
 
 # Fonction helper pour traiter un événement de but
@@ -1298,12 +1388,13 @@ async def check_events(fixture_id):
                     events, match_status, elapsed_time, match_data, match_statistics = result
                     events = None  # Réinitialiser pour éviter de renvoyer les événements de la première mi-temps
 
-            # Gestion des tirs au but
-            if match_status == 'P' or match_status == 'PEN':
+            # Gestion des tirs au but ('P' = séance en cours ; 'PEN' = match terminé,
+            # traité par le bloc de fin de match plus bas)
+            if match_status == 'P':
                 penalty_message_sent, events, match_status, elapsed_time, match_data, match_statistics = await handle_penalty_shootout(fixture_id, penalty_message_sent, IS_PAID_API)
 
-            # Gestion des interruptions
-            if match_status == 'INT':
+            # Gestion des interruptions ('INT') et suspensions ('SUSP')
+            if match_status in ('INT', 'SUSP'):
                 interruption_message_sent, events, match_status, elapsed_time, match_data, match_statistics = await handle_interruption(fixture_id, interruption_message_sent, IS_PAID_API)
 
             # Vérifiez que events n'est pas None avant de l'itérer
@@ -1513,6 +1604,14 @@ async def check_events(fixture_id):
                 await send_end_message(home_team, away_team, home_score, away_score, match_statistics, events)
                 break
 
+            # Statuts terminaux sans fin de match classique (abandon, annulation, report, forfait).
+            # Sans cette sortie, la boucle continuerait à interroger l'API indéfiniment.
+            if match_status in ('ABD', 'CANC', 'PST', 'AWD', 'WO'):
+                log_message(f"Le match ne reprendra pas (statut : {match_status}), arrêt du suivi.")
+                await send_message_to_all_chats(f"🤖 : Le match ne reprendra pas (statut : {match_status}). Fin du suivi.")
+                log_cost_summary()
+                break
+
         # Si le nombre d'appels à l'API restant est dépassé, on lève une exception et on sort de la boucle !
         except RateLimitExceededError as e:
             log_message(f"Erreur : {e}")
@@ -1554,6 +1653,16 @@ def split_message_by_platform(message, platform="telegram"):
         if len(paragraph) > max_length:
             lines = paragraph.split("\n")
             for line in lines:
+                # Une ligne qui dépasse à elle seule la limite est découpée en dur
+                # (sinon l'envoi échouerait côté Telegram/Discord)
+                if len(line) > max_length:
+                    if current_message:
+                        messages.append(current_message.strip())
+                        current_message = ""
+                    chunk_size = max_length - 50  # marge pour l'indicateur [Partie x/y]
+                    for i in range(0, len(line), chunk_size):
+                        messages.append(line[i:i + chunk_size])
+                    continue
                 if len(current_message) + len(line) + 2 <= max_length:
                     current_message += line + "\n"
                 else:
@@ -1612,8 +1721,15 @@ async def send_message_to_all_chats(message, language=LANGUAGE):
             for chat_id in chat_ids:
                 try:
                     for part in message_parts:
-                        # Utiliser Markdown legacy pour compatibilité avec le formatage Discord
-                        await bot.send_message(chat_id=chat_id, text=part, parse_mode="Markdown")
+                        # Markdown legacy Telegram : le gras s'écrit *texte* (pas **texte** comme Discord)
+                        telegram_part = part.replace("**", "*")
+                        try:
+                            await bot.send_message(chat_id=chat_id, text=telegram_part, parse_mode="Markdown")
+                        except TelegramBadRequest as e:
+                            # Markdown invalide (souvent généré par le LLM) : renvoyer en
+                            # texte brut plutôt que de perdre le message
+                            log_message(f"Markdown invalide pour Telegram ({e}), renvoi en texte brut")
+                            await bot.send_message(chat_id=chat_id, text=part)
                         await asyncio.sleep(0.5)  # Délai entre les messages pour éviter le rate limiting
                 except TelegramForbiddenError:
                     # Évite de log si le bot a été bloqué par des utilisateurs
@@ -1680,8 +1796,16 @@ async def send_match_today_message(match_start_time, fixture_id, current_league_
     log_message("send_match_today_message() appelée.")
     # Appeler l'API ChatGPT
     chatgpt_analysis = await call_chatgpt_api_matchtoday(match_start_time, teams, league, round_info, venue, city)
-    message = f"🤖 : {chatgpt_analysis}"
-    
+    if chatgpt_analysis:
+        message = f"🤖 : {chatgpt_analysis}"
+    else:
+        # Repli factuel si l'API IA est indisponible : on annonce quand même le match
+        kickoff = match_start_time.strftime('%H:%M') if match_start_time else "?"
+        message = (f"🤖 : Match aujourd'hui : {teams['home']} vs {teams['away']}\n"
+                   f"🏆 {league} — {round_info}\n"
+                   f"🏟️ {venue}, {city}\n"
+                   f"🕒 Coup d'envoi : {kickoff}")
+
     # Envoyer le message du match à tous les chats.
     await send_message_to_all_chats(message)
 
@@ -1697,12 +1821,15 @@ async def send_compo_message(match_data, predictions=None, fixture_id=None, team
     else:
         # Appeler l'API ChatGPT
         chatgpt_analysis = await call_chatgpt_api_compomatch(match_data, predictions)
-        message = "🤖 : " + chatgpt_analysis
-        
+        if chatgpt_analysis:
+            message = "🤖 : " + chatgpt_analysis
+        else:
+            message = "🤖 : Désolé, l'analyse d'avant-match est indisponible pour le moment."
+
         # Sauvegarder l'analyse pré-match (compositions) dans l'historique
         if fixture_id and chatgpt_analysis:
             match_info = {
-                "date": datetime.datetime.now().isoformat(),
+                "date": datetime.datetime.now(server_timezone).isoformat(),
                 "league": league if league else "Unknown",
                 "round": round_info if round_info else "Unknown",
                 "teams": teams if teams else {},
@@ -1736,9 +1863,12 @@ async def send_goal_message(player, team, player_statistics, elapsed_time, match
     message = f"⚽️ {elapsed_time}' - {team['name']}\n {match_data['teams']['home']['name']} {home_score} - {away_score} {match_data['teams']['away']['name']}\n\n"
     # Pour passer le score à l'api de chatgpt
     score_string = f"{match_data['teams']['home']['name']} {home_score} - {away_score} {match_data['teams']['away']['name']}"
-    # Appeler l'API ChatGPT  
+    # Appeler l'API ChatGPT
     chatgpt_analysis = await call_chatgpt_api_goalmatch(player, team, player_statistics, elapsed_time, event, score_string)
-    message += "🤖 Infos sur le but :\n" + chatgpt_analysis
+    if chatgpt_analysis:
+        message += "🤖 Infos sur le but :\n" + chatgpt_analysis
+    else:
+        message += f"🤖 : But de {player['name']} !"
     await send_message_to_all_chats(message)
 
 # Envoie un message aux utilisateurs pour informer d'un but marqué lors du match en cours SANS LE SCORE !, y compris les informations sur le joueur, l'équipe et les statistiques.
@@ -1754,9 +1884,12 @@ async def send_goal_message_significant_increase_in_score(player, team, player_s
     message = f"⚽️ {elapsed_time}' - {team['name']}\n\n"
     # Pour passer le score à l'api de chatgpt
     score_string = f"{match_data['teams']['home']['name']} {home_score} - {away_score} {match_data['teams']['away']['name']}"
-    # Appeler l'API ChatGPT  
+    # Appeler l'API ChatGPT
     chatgpt_analysis = await call_chatgpt_api_goalmatch(player, team, player_statistics, elapsed_time, event, score_string)
-    message += "🤖 Infos sur le but :\n" + chatgpt_analysis
+    if chatgpt_analysis:
+        message += "🤖 Infos sur le but :\n" + chatgpt_analysis
+    else:
+        message += f"🤖 : But de {player['name']} !"
     await send_message_to_all_chats(message)
 
 # Envoie un message aux utilisateurs pour informer d'un but marqué lors de la séance au tir aux but
@@ -1767,10 +1900,13 @@ async def send_shootout_goal_message(player, team, player_statistics, event):
     #log_message(f"Player statistics: {player_statistics}")
     # Utilisez team['name'] pour obtenir uniquement le nom de l'équipe
     message = f"⚽️ Pénalty réussi' - {team['name']}\n\n"
-    # Appeler l'API ChatGPT  
+    # Appeler l'API ChatGPT
     chatgpt_analysis = await call_chatgpt_api_shootout_goal_match(player, team, player_statistics, event)
-    message += "🤖 Infos sur le pénalty :\n" + chatgpt_analysis
-    await send_message_to_all_chats(message)    
+    if chatgpt_analysis:
+        message += "🤖 Infos sur le pénalty :\n" + chatgpt_analysis
+    else:
+        message += f"🤖 : {player['name']} a réussi son tir au but !"
+    await send_message_to_all_chats(message)
 
 # Envoie juste le score du match si plusieurs buts marqués dans le même intervalle 
 async def updated_score(match_data):
@@ -1791,9 +1927,12 @@ async def send_goal_cancelled_message(previous_score, current_score):
 async def send_red_card_message(player, team, elapsed_time, event):
     log_message("send_red_card_message() appelée.")
     message = f"🟥 Carton rouge ! {elapsed_time}'\n ({team['name']})\n\n"
-    # Appeler l'API ChatGPT  
+    # Appeler l'API ChatGPT
     chatgpt_analysis = await call_chatgpt_api_redmatch(player, team, elapsed_time, event)
-    message += "🤖 Infos sur le carton rouge :\n" + chatgpt_analysis    
+    if chatgpt_analysis:
+        message += "🤖 Infos sur le carton rouge :\n" + chatgpt_analysis
+    else:
+        message += f"🤖 : Carton rouge pour {player['name']} ({team['name']})."
     await send_message_to_all_chats(message)
 
 # Envoie un message aux utilisateurs pour informer qu'un pénalty a été manqué pendant le match
@@ -1967,9 +2106,9 @@ async def send_end_message(home_team, away_team, home_score, away_score, match_s
     
     # Appeler l'API ChatGPT et ajouter la réponse à la suite des statistiques du match
     chatgpt_analysis = await call_chatgpt_api_endmatch(match_statistics, events, home_team, home_score, away_score, away_team)
-    
-    # Vérifier si l'analyse est un message d'erreur (commence par "🤖 :")
-    if chatgpt_analysis.startswith("🤖 :"):
+
+    # None = API IA définitivement indisponible : on envoie les événements bruts à la place
+    if not chatgpt_analysis:
         log_message("API OpenRouter indisponible, envoi des événements bruts à la place")
         message += "⚠️ Analyse IA indisponible, voici les événements du match :\n\n"
         message += format_raw_events(events, home_team, away_team)
@@ -1997,7 +2136,9 @@ async def send_end_message(home_team, away_team, home_score, away_score, match_s
                 "home": home_score,
                 "away": away_score
             }
-            last_match["post_match_analysis"] = chatgpt_analysis
+            # Ne pas écraser l'historique avec un échec d'analyse (None) : le contexte
+            # des prochains prompts afficherait sinon un message d'erreur comme analyse
+            last_match["post_match_analysis"] = chatgpt_analysis or None
             league_name_for_stats = last_match.get("league")
             save_match_history(data)
             log_message(f"Analyse post-match sauvegardée pour le match {last_match.get('fixture_id')}")
@@ -2046,28 +2187,32 @@ async def translate_message(message, language):
         "max_tokens": 2000
     }
     
-    async with httpx.AsyncClient() as client:
-        try:
-            translation_response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=translation_data, timeout=60.0)
-            translation_response.raise_for_status()
-            response_data = translation_response.json()
-            translated_message = response_data["choices"][0]["message"]["content"].strip()
-            
-            # Tracker les tokens et coûts si disponibles
-            if ENABLE_COST_TRACKING and "usage" in response_data:
-                input_tokens = response_data["usage"].get("prompt_tokens", 0)
-                output_tokens = response_data["usage"].get("completion_tokens", 0)
-                track_api_cost(input_tokens, output_tokens, "translate_message")
-            
-            return translated_message
-        except httpx.HTTPError as e:
-            log_message(f"Error during message translation with the OpenRouter API: {e}")
-            return f"🤖 : Sorry, an error occurred while communicating with the translation API."
-        except Exception as e:
-            log_message(f"Unexpected error during message translation: {e}")
-            return f"🤖 : Sorry, an unexpected error occurred during message translation."
+    try:
+        client = await get_openrouter_client()
+        translation_response = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=translation_data, timeout=60.0)
+        translation_response.raise_for_status()
+        response_data = translation_response.json()
+        translated_message = (response_data["choices"][0]["message"].get("content") or "").strip()
 
-# Fonction générique pour appeler l'API ChatGPT avec retry
+        # Tracker les tokens et coûts si disponibles
+        if ENABLE_COST_TRACKING and "usage" in response_data:
+            input_tokens = response_data["usage"].get("prompt_tokens", 0)
+            output_tokens = response_data["usage"].get("completion_tokens", 0)
+            track_api_cost(input_tokens, output_tokens, "translate_message")
+
+        # Si la traduction est vide, mieux vaut envoyer le message original
+        return translated_message if translated_message else message
+    except httpx.HTTPError as e:
+        log_message(f"Erreur lors de la traduction du message via l'API OpenRouter : {e}", "ERROR")
+        # En cas d'échec, on envoie le message original plutôt qu'un message d'erreur
+        return message
+    except Exception as e:
+        log_message(f"Erreur inattendue lors de la traduction du message : {e}", "ERROR")
+        return message
+
+# Fonction générique pour appeler l'API ChatGPT avec retry.
+# Renvoie le texte de la réponse, ou None si l'appel a définitivement échoué :
+# chaque appelant décide alors du message de repli à envoyer aux utilisateurs.
 async def call_chatgpt_api(data, max_retries=3):
     headers = {
         "Content-Type": "application/json",
@@ -2075,85 +2220,94 @@ async def call_chatgpt_api(data, max_retries=3):
         "HTTP-Referer": "https://github.com/Macmachi/gptfoot",
         "X-Title": "gptfoot"
     }
-    
+
     for attempt in range(max_retries):
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                # Appel à l'API OpenRouter (compatible OpenAI) pour obtenir le message
-                response_json = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
-                response_json.raise_for_status()
-                response_data = response_json.json()
-                
-                # Vérifier que la réponse contient les données attendues
-                if "choices" not in response_data or not response_data["choices"]:
-                    log_message(f"Réponse API invalide (pas de choices) : {response_data}")
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(2 ** attempt)  # Backoff exponentiel
-                        continue
-                    return f"🤖 : Désolé, l'API a retourné une réponse invalide."
-                
-                message = response_data["choices"][0]["message"]["content"].strip()
-                
-                # Tracker les tokens et coûts si disponibles
-                if ENABLE_COST_TRACKING and "usage" in response_data:
-                    input_tokens = response_data["usage"].get("prompt_tokens", 0)
-                    output_tokens = response_data["usage"].get("completion_tokens", 0)
-                    track_api_cost(input_tokens, output_tokens, f"call_chatgpt_api({data.get('model', 'unknown')})")
-                 
-                log_message(f"Succès de la récupération de la réponse {data.get('model', 'unknown')}")
-                return message
+            client = await get_openrouter_client()
+            # Appel à l'API OpenRouter (compatible OpenAI) pour obtenir le message
+            response_json = await client.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=data)
+            response_json.raise_for_status()
+            response_data = response_json.json()
+
+            # Vérifier que la réponse contient les données attendues
+            if "choices" not in response_data or not response_data["choices"]:
+                log_message(f"Réponse API invalide (pas de choices) : {response_data}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)  # Backoff exponentiel
+                    continue
+                return None
+
+            message = (response_data["choices"][0]["message"].get("content") or "").strip()
+
+            # Tracker les tokens et coûts si disponibles
+            if ENABLE_COST_TRACKING and "usage" in response_data:
+                input_tokens = response_data["usage"].get("prompt_tokens", 0)
+                output_tokens = response_data["usage"].get("completion_tokens", 0)
+                track_api_cost(input_tokens, output_tokens, f"call_chatgpt_api({data.get('model', 'unknown')})")
+
+            # Certains modèles de raisonnement peuvent consommer tout le budget max_tokens
+            # en réflexion et renvoyer un contenu vide : on retente dans ce cas.
+            if not message:
+                log_message(f"Réponse API avec contenu vide (tentative {attempt + 1}/{max_retries})", "WARNING")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                return None
+
+            log_message(f"Succès de la récupération de la réponse {data.get('model', 'unknown')}")
+            return message
 
         except httpx.TimeoutException as e:
             log_message(f"Timeout lors de l'appel à l'API OpenRouter (tentative {attempt + 1}/{max_retries}) : {e}")
             if attempt < max_retries - 1:
                 await asyncio.sleep(2 ** attempt)  # Backoff exponentiel
                 continue
-            return f"🤖 : Désolé, l'API OpenRouter ne répond pas (timeout). Veuillez réessayer plus tard."
-        
+            return None
+
         except httpx.HTTPStatusError as e:
             status_code = e.response.status_code
             log_message(f"Erreur HTTP {status_code} lors de l'appel à l'API OpenRouter (tentative {attempt + 1}/{max_retries}) : {e}")
-            
+
             # Gestion spécifique des codes d'erreur
             if status_code == 401:
-                log_message("Erreur d'authentification : Vérifiez votre clé API OpenRouter")
-                return f"🤖 : Erreur d'authentification API. Vérifiez votre clé API."
+                log_message("Erreur d'authentification : Vérifiez votre clé API OpenRouter", "ERROR")
+                return None
             elif status_code == 429:
                 log_message("Rate limit atteint, attente avant retry...")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(5 * (2 ** attempt))  # Backoff plus long pour rate limit
                     continue
-                return f"🤖 : Trop de requêtes. Veuillez réessayer dans quelques instants."
+                return None
             elif status_code >= 500:
                 log_message(f"Erreur serveur {status_code}, retry...")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                return f"🤖 : L'API OpenRouter rencontre des problèmes. Veuillez réessayer plus tard."
+                return None
             else:
                 log_message(f"Erreur HTTP {status_code}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                return f"🤖 : Erreur lors de la communication avec l'API OpenRouter (code {status_code})."
-        
+                return None
+
         except httpx.NetworkError as e:
             log_message(f"Erreur réseau lors de l'appel à l'API OpenRouter (tentative {attempt + 1}/{max_retries}) : {e}")
             if attempt < max_retries - 1:
                 await asyncio.sleep(2 ** attempt)
                 continue
-            return f"🤖 : Erreur réseau. Vérifiez votre connexion Internet."
-        
+            return None
+
         except Exception as e:
             log_message(f"Erreur inattendue lors de l'appel à l'API OpenRouter (tentative {attempt + 1}/{max_retries}) : {e}")
             if attempt < max_retries - 1:
                 await asyncio.sleep(2 ** attempt)
                 continue
-            return f"🤖 : Désolé, une erreur inattendue s'est produite."
-    
+            return None
+
     # Si tous les retries ont échoué
-    log_message(f"Tous les {max_retries} tentatives ont échoué pour l'appel API")
-    return f"🤖 : Impossible de contacter l'API après {max_retries} tentatives. Veuillez réessayer plus tard."
+    log_message(f"Toutes les {max_retries} tentatives ont échoué pour l'appel API", "ERROR")
+    return None
 
 # Analyse pour l'heure de début du match
 async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_info, venue, city):
@@ -2170,7 +2324,7 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
                     f"Équipes du match : {teams['home']} contre {teams['away']}\n"
                     f"Stade et ville du stade : {venue}, {city}\n"
                     f"Heure de début : {match_start_time}\n"
-                    f"L'heure actuelle est : {datetime.datetime.now()}\n"
+                    f"L'heure actuelle est : {datetime.datetime.now(server_timezone)}\n"
                     f"Équipe analysée : {TEAM_NAME}")
     system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse de matchs de football. "
                     f"IMPORTANT : Nous sommes en saison {current_season}. "
@@ -2376,11 +2530,40 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
 
 # FIN DU CODE DE CONFIGURATION IA
 
+# Références vers les tâches de fond : sans elles, l'event loop ne garde qu'une
+# référence faible et une tâche peut être supprimée par le garbage collector en plein vol.
+background_tasks = []
+
+def _log_task_exception(task):
+    """Callback de fin de tâche : logge les exceptions non gérées des tâches de fond"""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        log_message(f"La tâche de fond '{task.get_name()}' s'est terminée avec une exception : {exc}", "ERROR")
+
+def create_background_task(coro, name):
+    """Crée une tâche de fond en conservant sa référence et en loggant ses exceptions"""
+    task = asyncio.create_task(coro, name=name)
+    task.add_done_callback(_log_task_exception)
+    background_tasks.append(task)
+    return task
+
+# Check immédiat au démarrage, avec gestion des erreurs pour ne pas laisser
+# une exception (ex: quota API) tuer silencieusement la tâche.
+async def run_initial_check():
+    try:
+        await check_matches()
+    except RateLimitExceededError as e:
+        log_message(f"Suivi du match arrêté (quota API atteint) : {e}", "WARNING")
+    except Exception as e:
+        log_message(f"Erreur inattendue lors du check initial des matchs : {e}", "ERROR")
+
 # Fonction principale pour initialiser le bot, enregistrer les gestionnaires de messages et lancer la vérification périodique des matchs.
 async def main():
     try:
         log_message("fonction main executée")
-        
+
         if USE_TELEGRAM:
             log_message("Bot telegram lancé")
             global bot
@@ -2388,28 +2571,31 @@ async def main():
             dp = Dispatcher()
             initialize_chat_ids_file()
             dp.message.register(on_start, Command("start"))
-            
+
             # Démarrer le bot Telegram en tâche de fond
-            asyncio.create_task(dp.start_polling(bot))
+            create_background_task(dp.start_polling(bot), "telegram_polling")
 
         if USE_DISCORD:
             log_message("Bot Discord lancé")
             # Lancez le bot Discord dans une nouvelle tâche
-            asyncio.create_task(run_discord_bot(TOKEN_DISCORD))
+            create_background_task(run_discord_bot(TOKEN_DISCORD), "discord_bot")
 
         # Si au moins un des deux bots est activé, exécutez les tâches de vérification
         if USE_TELEGRAM or USE_DISCORD:
             # Check immediate puis vérification périodique
-            asyncio.create_task(check_matches())
-            asyncio.create_task(check_match_periodically())
+            create_background_task(run_initial_check(), "initial_check")
+            create_background_task(check_match_periodically(), "daily_check")
+
+        # Boucle d'attente pour empêcher main() (donc le script) de se terminer
+        while is_running:
+            # Attente de 10 secondes avant de vérifier à nouveau
+            await asyncio.sleep(10)
 
     except Exception as e:
-        log_message(f"Erreur inattendue dans main(): {e}")     
-   
-    # Boucle d'attente pour empêcher main() (donc le script) de se terminer
-    while is_running:
-        # Attente de 10 secondes avant de vérifier à nouveau
-        await asyncio.sleep(10)  
+        log_message(f"Erreur inattendue dans main(): {e}", "ERROR")
+    finally:
+        # Fermer proprement les clients HTTP partagés à l'arrêt
+        await close_http_clients()
 
 if __name__ == "__main__":
     asyncio.run(main())

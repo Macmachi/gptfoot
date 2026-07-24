@@ -27,6 +27,20 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Support for dozens of languages
 * Configurable AI models (OpenRouter API)
 
+## 🆕 What's New in v2.8.0
+* ✅ **Fix — Infinite loop after penalty shootouts (free API)**: the shootout handler was waiting for the `PEN` status to change, but `PEN` is a **final** status (match finished after penalties) and never changes. On the free API tier this drained the daily quota and the end-of-match summary was never sent. The handler now monitors `P` (shootout in progress) and lets `PEN` be handled as a normal end of match.
+* ✅ **Fix — Bot permanently dead after an API quota error**: `RateLimitExceededError` escaping from the live-event loop used to kill the daily 09:00 check task silently — the script kept running but never checked matches again until a manual restart. The daily loop now catches all exceptions and resumes the next day. A related bug was also fixed: `get_check_match_status` was swallowing `RateLimitExceededError` in its generic `except`, preventing a clean stop of the match tracking.
+* ✅ **Fix — Graceful shutdown**: Ctrl+C (`SIGINT`), `kill` (`SIGTERM`) and `SIGQUIT` now log and stop the script cleanly (previously only `SIGKILL` could terminate it). `SIGHUP` is still ignored so the bot survives terminal closure under `nohup`.
+* ✅ **Fix — Background tasks garbage collection**: references to all `asyncio` background tasks are now kept (the event loop only holds weak references), tasks are named, and their unhandled exceptions are logged.
+* ✅ **Fix — Lost Telegram messages on invalid Markdown**: LLM-generated text with unbalanced Markdown made Telegram reject the message (it was only logged, never delivered). Messages are now retried in plain text, and Discord-style `**bold**` is converted to Telegram legacy `*bold*`.
+* ✅ **Fix — Timezone-aware scheduling**: all wait computations (daily 09:00 check, kickoff countdown, "is the match today?") now use the `TIMEZONE` from `config.ini` instead of the OS clock.
+* ✅ **Robustness — Terminal match statuses**: abandoned / cancelled / postponed / forfeited matches (`ABD`, `CANC`, `PST`, `AWD`, `WO`) now cleanly stop the live tracking loop, and suspended matches (`SUSP`) are handled like interruptions.
+* ✅ **Robustness — AI failure fallbacks**: when the OpenRouter API is definitively unavailable, users now receive a factual fallback (match announcement, "But de X !", raw match events) instead of an error string; failed analyses are no longer stored in the match history (they used to pollute the context of future prompts). Empty LLM responses (reasoning models exhausting `max_tokens`) are retried. Failed translations now fall back to the original message.
+* ✅ **Robustness — Atomic JSON writes**: `telegram_chat_ids.json`, `discord_channels.json` and `match_analyses.json` are written via a temp-file + atomic rename, so a crash mid-write can no longer corrupt them; corrupted files are also handled gracefully on read.
+* ✅ **Robustness — Startup validation extended**: `LEAGUE_IDS` and `SEASON_ID` are now validated at startup (previously an invalid `SEASON_ID` only crashed on match day). Oversized single lines in messages are now hard-split to respect Telegram/Discord limits.
+* ✅ **Performance — Shared HTTP clients**: one reusable `aiohttp` session (api-football) and one `httpx` client (OpenRouter) instead of a new session per request; both are closed cleanly on shutdown.
+* ✅ **Dependencies updated**: aiogram 3.30.0, aiohttp 3.14.3, discord.py 2.7.1, pytz 2026.2 (httpx unchanged). Removed the useless `asyncio` and `configparser` backports from `requirements.txt`. **Note: aiogram 3.30 requires Python ≥ 3.10 (and < 3.15).** Code compatibility with these versions has been verified.
+
 ## 🆕 What's New in v2.7.0
 * ✅ **Migrated from Poe to OpenRouter**: The bot now calls the OpenRouter API (`https://openrouter.ai/api/v1/chat/completions`) instead of Poe. The endpoint is OpenAI-compatible, so response parsing and cost tracking are unchanged. Required `HTTP-Referer` and `X-Title` headers are now sent. The config key is `OPENROUTER_API_KEY` (the old `POE_API_KEY` still works as a fallback for backward compatibility).
 * ✅ **Default Model — MiniMax-M3**: The example config ships with `minimax/minimax-m3` as the default `MAIN_MODEL` and `TRANSLATION_MODEL` ($0.30 in / $1.20 out per 1M tokens). Any OpenRouter model slug works (`openai/gpt-4o`, `anthropic/claude-3.5-sonnet`, `google/gemini-2.0-flash-001`, etc.).
@@ -105,6 +119,15 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * ✅ **[SOLVED — v2.6.1]** During the off-season, the bot was sending a daily false-positive message claiming "API football is unavailable" because `is_match_today()` treated a valid `200 OK` response with an empty `response` array (no upcoming match) the same way as a real API failure
   * **Resolution**: Added an `api_call_succeeded` flag to differentiate "API OK but no fixture scheduled" (silent log only — expected during off-season) from "API actually unreachable" (still broadcast to users). No more daily spam between seasons.
 
+* ✅ **[SOLVED — v2.8.0]** [Free API] After a penalty shootout, the tracking loop never terminated (waiting for the final `PEN` status to change), draining the daily API quota and skipping the end-of-match summary
+  * **Resolution**: The shootout handler now monitors `P` (shootout in progress); `PEN` is correctly treated as a final status by the end-of-match block.
+
+* ✅ **[SOLVED — v2.8.0]** A `RateLimitExceededError` raised during live tracking killed the daily check task silently — the bot never checked matches again until a manual restart
+  * **Resolution**: The daily loop catches and logs all exceptions, then resumes the next day. The generic `except` in `get_check_match_status` no longer swallows the rate-limit exception.
+
+* ✅ **[SOLVED — v2.8.0]** The script could not be stopped with Ctrl+C or `kill` (only `SIGKILL` worked), and Telegram messages with invalid LLM-generated Markdown were silently lost
+  * **Resolution**: Proper signal handlers (log + clean exit) and a plain-text retry fallback for Telegram.
+
 ### **Circumvented Issues** 🕹️
 
 * **[🕹️ CIRCUMVENTED — v2.5.1]** [Free API] In very rare instances, a disallowed goal could go undetected if two scored goals were identified — including one that was later disallowed — within the same interval between two checks.
@@ -130,6 +153,8 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * [Free API] Live-polling interval is computed dynamically based on whether the league is listed in `LEAGUES_WITH_EXTRA_TIME` (longer total budget when extra time is possible). Target = 85 polls per match, leaving margin for `is_match_today`, lineups, and `/teams/statistics` calls under the 100 req/day quota.
 
 ## 🚀 Setup
+
+> **Prerequisite**: Python **3.10 to 3.14** (required by aiogram 3.30).
 
 ```bash
 # 1. Clone
