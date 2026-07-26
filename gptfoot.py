@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.8.0
+# VERSION : v2.8.1
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -2317,12 +2317,29 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
     season_year = int(SEASON_ID)
     current_season = f"{season_year}-{season_year + 1}"
     
+    # Garde-fou lieu : l'API peut renvoyer None (ou vide) pour le stade et/ou la ville.
+    # Sans nettoyage, on enverrait littéralement "Stade : None, Genève" au modèle,
+    # qui génère alors "stade non renseigné". On construit la ligne selon ce qui existe.
+    def _clean(value):
+        s = str(value).strip() if value is not None else ""
+        return "" if s.lower() in ("", "none", "null") else s
+    venue_clean = _clean(venue)
+    city_clean = _clean(city)
+    if venue_clean and city_clean:
+        location_line = f"Stade et ville du stade : {venue_clean}, {city_clean}\n"
+    elif city_clean:
+        location_line = f"Ville : {city_clean}\n"
+    elif venue_clean:
+        location_line = f"Stade : {venue_clean}\n"
+    else:
+        location_line = ""
+
     user_message = (f"SAISON ACTUELLE : {current_season}\n\n"
                     f"Les informations du match qui a lieu aujourd'hui sont les suivantes : \n"
                     f"Ligue actuelle : {league}\n"
                     f"Tour : {round_info}\n"
                     f"Équipes du match : {teams['home']} contre {teams['away']}\n"
-                    f"Stade et ville du stade : {venue}, {city}\n"
+                    f"{location_line}"
                     f"Heure de début : {match_start_time}\n"
                     f"L'heure actuelle est : {datetime.datetime.now(server_timezone)}\n"
                     f"Équipe analysée : {TEAM_NAME}")
@@ -2333,6 +2350,7 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
                     f"Fais une présentation simple et factuelle du match qui aura lieu aujourd'hui **en 3-4 phrases maximum** : "
                     f"annonce les équipes qui s'affrontent, la compétition, le lieu et l'heure. "
                     f"**Traduis les noms de villes dans la langue {LANGUAGE}** (ex: Geneva → Genève si french, Geneva → Genf si german, etc.). "
+                    f"Si le lieu (stade et/ou ville) n'est pas fourni, n'en parle simplement pas et n'invente rien : ne dis JAMAIS que le stade n'est pas renseigné. "
                     f"Reste général sans inventer de détails sur la forme des équipes ou les enjeux. "
                     f"Embellis la présentation avec des émojis pertinents. "
                     f"Sois concis, engageant et informatif. "
@@ -2344,18 +2362,43 @@ async def call_chatgpt_api_matchtoday(match_start_time, teams, league, round_inf
     }
     return await call_chatgpt_api(data)
 
+# Détermine si des compositions officielles (onze de départ) sont présentes dans match_data.
+# En tier gratuit, l'API renvoie souvent des lineups vides à l'heure du coup d'envoi ;
+# on adapte alors le prompt pour éviter que le modèle brode "aucune composition fournie".
+def compo_available(match_data):
+    if not match_data or not isinstance(match_data, dict):
+        return False
+    lineups = match_data.get('lineups') or {}
+    for team_lineup in lineups.values():
+        if isinstance(team_lineup, dict) and team_lineup.get('startXI'):
+            return True
+    return False
+
 # Analyse de début de match avec des smileys
 async def call_chatgpt_api_compomatch(match_data, predictions=None):
     log_message(f"Informations reçues par l'API : match_data={match_data}, predictions={predictions}")
-    
+
     # Construire la saison complète
     season_year = int(SEASON_ID)
     current_season = f"{season_year}-{season_year + 1}"
-    
+
+    has_compo = compo_available(match_data)
+
     user_message = f"SAISON ACTUELLE : {current_season}\n\n"
-    
-    if match_data is not None:
+
+    if has_compo:
         user_message += f"Voici les informations du match qui va commencer d'ici quelques minutes : {match_data}"
+    elif match_data is not None:
+        # Compositions absentes de l'API (fréquent en tier gratuit) : on fournit au moins
+        # les équipes et on signale explicitement l'absence de compo (sans dumper des lineups vides).
+        try:
+            home = match_data['teams']['home']['name']
+            away = match_data['teams']['away']['name']
+            teams_line = f"{home} contre {away}"
+        except (KeyError, TypeError):
+            teams_line = "les deux équipes du match"
+        user_message += (f"Match qui va commencer : {teams_line}.\n"
+                         f"Les compositions officielles ne sont pas encore disponibles pour ce match.")
     else:
         user_message += "Aucune information sur le match n'est disponible pour le moment."
 
@@ -2373,26 +2416,43 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
         match_history_context = format_match_history_for_context(last_matches)
         user_message += f"\n\n{match_history_context}"
 
-    system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse tactique de matchs de football. "
-                    f"IMPORTANT : Nous sommes en saison {current_season}. "
-                    f"Tu dois te baser UNIQUEMENT sur les informations fournies (compositions, formations, prédictions si disponibles, stats de saison dans la compétition du match, historique des matchs). "
-                    f"N'utilise JAMAIS tes connaissances sur les saisons antérieures à {current_season}. "
-                    f"\n\n"
-                    f"**STRUCTURE OBLIGATOIRE DE TA RÉPONSE** (utilise des sauts de ligne entre chaque section) :\n"
-                    f"1️⃣ **COMPOSITIONS** (2-3 phrases) : Analyse les formations et joueurs clés des deux équipes\n"
-                    f"2️⃣ **CONTEXTE RÉCENT** (2-3 phrases) : Résume brièvement la forme récente basée sur l'historique fourni\n"
-                    f"3️⃣ **PRONOSTIC** (1-2 phrases) : Donne ton pronostic basé sur les données (prédictions si disponibles)\n"
-                    f"\n"
-                    f"Utilise des émojis pertinents (⚽🛡️🔥📊) pour aérer. "
-                    f"Sois concis, factuel et engageant. Chaque section doit être séparée par un saut de ligne.\n"
-                    f"FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe).")
-    
+    if has_compo:
+        system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse tactique de matchs de football. "
+                        f"IMPORTANT : Nous sommes en saison {current_season}. "
+                        f"Tu dois te baser UNIQUEMENT sur les informations fournies (compositions, formations, prédictions si disponibles, stats de saison dans la compétition du match, historique des matchs). "
+                        f"N'utilise JAMAIS tes connaissances sur les saisons antérieures à {current_season}. "
+                        f"\n\n"
+                        f"**STRUCTURE OBLIGATOIRE DE TA RÉPONSE** (utilise des sauts de ligne entre chaque section) :\n"
+                        f"1️⃣ **COMPOSITIONS** (2-3 phrases) : Analyse les formations et joueurs clés des deux équipes\n"
+                        f"2️⃣ **CONTEXTE RÉCENT** (2-3 phrases) : Résume brièvement la forme récente basée sur l'historique fourni\n"
+                        f"3️⃣ **PRONOSTIC** (1-2 phrases) : Donne ton pronostic basé sur les données (prédictions si disponibles)\n"
+                        f"\n"
+                        f"Utilise des émojis pertinents (⚽🛡️🔥📊) pour aérer. "
+                        f"Sois concis, factuel et engageant. Chaque section doit être séparée par un saut de ligne.\n"
+                        f"FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe).")
+    else:
+        # Cas sans compo : présentation courte, sans section COMPOSITIONS, sans mention du manque.
+        system_prompt = (f"Tu es un journaliste sportif expert spécialisé dans l'analyse de matchs de football. "
+                        f"IMPORTANT : Nous sommes en saison {current_season}. "
+                        f"Tu dois te baser UNIQUEMENT sur les informations fournies (équipes, prédictions si disponibles, stats de saison, historique des matchs). "
+                        f"N'utilise JAMAIS tes connaissances sur les saisons antérieures à {current_season}. "
+                        f"Les compositions officielles ne sont PAS disponibles pour ce match : n'invente AUCUNE composition, formation ou joueur, "
+                        f"et ne mentionne SURTOUT PAS que les compos manquent, ne t'excuse pas — présente simplement le match autrement. "
+                        f"\n\n"
+                        f"**STRUCTURE OBLIGATOIRE DE TA RÉPONSE** (courte, sauts de ligne entre les sections) :\n"
+                        f"1️⃣ **CONTEXTE RÉCENT** (2 phrases) : Résume la forme récente basée sur l'historique et les stats de saison fournis\n"
+                        f"2️⃣ **PRONOSTIC** (1-2 phrases) : Donne ton pronostic basé sur les données (prédictions si disponibles)\n"
+                        f"\n"
+                        f"Utilise des émojis pertinents (⚽🔥📊) pour aérer. "
+                        f"Sois concis, factuel et engageant. Chaque section doit être séparée par un saut de ligne.\n"
+                        f"FORMATAGE : Utilise un formatage Markdown simple compatible avec Discord et Telegram (gras avec **texte**, italique avec *texte*, pas de titres avec # ni de formatage complexe).")
+
     data = {
         "model": GPT_MODEL_NAME,
         "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
         "max_tokens": 1500
     }
-    
+
     return await call_chatgpt_api(data)
 
 # Commentaire sur le goal récent

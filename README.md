@@ -27,6 +27,10 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Support for dozens of languages
 * Configurable AI models (OpenRouter API)
 
+## 🆕 What's New in v2.8.1
+* ✅ **Fix — Missing venue no longer leaks `None`**: when api-football returns a null stadium and/or city for a fixture (common on some leagues), the "match today" prompt used to literally send `Stade : None, Genève` to the LLM, which then wrote "stadium not provided". The location line is now built only from the fields that actually exist (venue + city, city only, venue only, or omitted), and the model is instructed never to say the venue is missing. **No additional API call.**
+* ✅ **Fix — Graceful handling of empty lineups**: on the free api-football tier, the `startXI` arrays are sometimes still empty at kickoff. Instead of dumping empty lineups into the prompt (which made the model ramble about "no lineup provided"), the bot now detects the absence of a starting XI and switches to a shorter pre-match preview (recent form + prediction only), without inventing players and without apologizing for the missing data. **No additional API call, no extra LLM call.**
+
 ## 🆕 What's New in v2.8.0
 * ✅ **Fix — Infinite loop after penalty shootouts (free API)**: the shootout handler was waiting for the `PEN` status to change, but `PEN` is a **final** status (match finished after penalties) and never changes. On the free API tier this drained the daily quota and the end-of-match summary was never sent. The handler now monitors `P` (shootout in progress) and lets `PEN` be handled as a normal end of match.
 * ✅ **Fix — Bot permanently dead after an API quota error**: `RateLimitExceededError` escaping from the live-event loop used to kill the daily 09:00 check task silently — the script kept running but never checked matches again until a manual restart. The daily loop now catches all exceptions and resumes the next day. A related bug was also fixed: `get_check_match_status` was swallowing `RateLimitExceededError` in its generic `except`, preventing a clean stop of the match tracking.
