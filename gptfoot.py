@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.8.1
+# VERSION : v2.8.2
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -1328,6 +1328,13 @@ async def process_goal_event(event, match_data, elapsed_time, current_score, pre
             event)
         return None, False, is_first_event
     else:
+        # L'API publie parfois le but en deux temps : d'abord sans le nom du joueur
+        # (le score est déjà incrémenté), puis avec le nom quelques minutes plus tard.
+        # Le score ne bouge alors plus, mais le but n'a jamais été annoncé.
+        # On le laisse passer : sent_events (check_events) garantit déjà l'unicité.
+        if goal_info['event_key'] not in sent_events:
+            log_message(f"Score inchangé mais but jamais annoncé, rattrapage : {goal_info['event_key']}")
+            return goal_info, False, is_first_event
         log_message(f"Le score n'a pas été modifié car l'API ne l'a pas mis à jour")
         return None, False, is_first_event
 
@@ -1464,7 +1471,7 @@ async def check_events(fixture_id):
                     
                     if goal_info:
                         goal_events.append(goal_info)
-                        score_updated = should_update_score
+                        score_updated = score_updated or should_update_score
                     else:
                         # Événement déjà traité ou non valide
                         sent_events.add(event_key)

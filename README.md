@@ -27,6 +27,9 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Support for dozens of languages
 * Configurable AI models (OpenRouter API)
 
+## 🆕 What's New in v2.8.2
+* ✅ **Fix — Goals published in two steps are no longer missed**: api-football sometimes publishes a goal in two stages — first with the score already incremented but no scorer name, then a few minutes later with the player name. Since the score no longer changed on the second pass, the goal was silently dropped and never announced. `process_goal_event` now rescues it: if the goal's `event_key` was never sent, it is announced (deduplication via `sent_events` still guarantees uniqueness). The `score_updated` flag in `check_events` now accumulates with `or`, so a rescued goal (no score change) processed after a real goal can no longer reset the flag and block the score update. **No additional API call.**
+
 ## 🆕 What's New in v2.8.1
 * ✅ **Fix — Missing venue no longer leaks `None`**: when api-football returns a null stadium and/or city for a fixture (common on some leagues), the "match today" prompt used to literally send `Stade : None, Genève` to the LLM, which then wrote "stadium not provided". The location line is now built only from the fields that actually exist (venue + city, city only, venue only, or omitted), and the model is instructed never to say the venue is missing. **No additional API call.**
 * ✅ **Fix — Graceful handling of empty lineups**: on the free api-football tier, the `startXI` arrays are sometimes still empty at kickoff. Instead of dumping empty lineups into the prompt (which made the model ramble about "no lineup provided"), the bot now detects the absence of a starting XI and switches to a shorter pre-match preview (recent form + prediction only), without inventing players and without apologizing for the missing data. **No additional API call, no extra LLM call.**
