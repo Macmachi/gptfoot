@@ -27,6 +27,12 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Support for dozens of languages
 * Configurable AI models (OpenRouter API)
 
+## 🆕 What's New in v2.8.3
+* ✅ **Fix — Double announcement and double tracking**: the startup check (`run_initial_check`) and the daily 09:00 check could both pick up the same fixture, announcing the match twice **and** running two concurrent tracking loops (duplicate lineups, duplicate goal messages, doubled api-football quota consumption). A `current_tracked_fixture_id` guard now makes the second check return immediately for an already-tracked fixture. *(Known limitation: the flag lives in memory, so a bot restart on the same day re-announces once.)*
+* ✅ **Fix — Postponed matches announced as taking place today**: api-football keeps the original date on a postponed fixture, so a `PST` match was announced as happening today. `is_match_today()` now skips fixtures whose status is `PST`, `CANC`, `ABD`, `SUSP`, `INT`, `AWD` or `WO`.
+* ✅ **Fix — Infinite loop on a postponed match**: the exit condition in `wait_for_match_start` was guarded by `elapsed_time is not None`, but the API returns `elapsed: null` on a `PST` fixture — so the postponed-status test was never reached and the loop polled forever. Terminal statuses are now tested **before** any `elapsed_time` guard.
+* ✅ **Improvement — No wasted calls on a cancelled match**: if a match is postponed/cancelled after the morning announcement, the bot now exits before requesting season stats and before generating the lineup analysis, saving one api-football call and one LLM call.
+
 ## 🆕 What's New in v2.8.2
 * ✅ **Fix — Goals published in two steps are no longer missed**: api-football sometimes publishes a goal in two stages — first with the score already incremented but no scorer name, then a few minutes later with the player name. Since the score no longer changed on the second pass, the goal was silently dropped and never announced. `process_goal_event` now rescues it: if the goal's `event_key` was never sent, it is announced (deduplication via `sent_events` still guarantees uniqueness). The `score_updated` flag in `check_events` now accumulates with `or`, so a rescued goal (no score change) processed after a real goal can no longer reset the flag and block the score update. **No additional API call.**
 

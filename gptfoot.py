@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.8.2
+# VERSION : v2.8.3
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -173,6 +173,10 @@ if not validate_api_keys():
 # Variable pour suivre si le message a été envoyé pendant les tirs au but
 penalty_message_sent = False
 interruption_message_sent = False
+# Fixture déjà annoncé et suivi : empêche run_initial_check() (démarrage) et
+# check_match_periodically() (09:00) de traiter deux fois le même match
+# (double annonce, double compo, double boucle d'événements, quota API doublé).
+current_tracked_fixture_id = None
 # Convertir la chaîne du fuseau horaire en objet pytz
 server_timezone = pytz.timezone(SERVER_TIMEZONE_STR)
 # Convertir la chaîne de LEAGUE_IDS en une liste d'entiers
@@ -650,6 +654,16 @@ async def check_matches():
     )
 
     if match_today:
+        # Garde anti-doublon : le check de démarrage (run_initial_check) et le check
+        # quotidien de 09:00 peuvent tomber sur le même match. Sans ça, le match est
+        # annoncé deux fois ET suivi par deux boucles concurrentes (compo en double,
+        # événements en double, quota API doublé).
+        global current_tracked_fixture_id
+        if fixture_id == current_tracked_fixture_id:
+            log_message(f"Match {fixture_id} déjà annoncé et suivi par une autre tâche — check ignoré.")
+            return
+        current_tracked_fixture_id = fixture_id
+
         # Réinitialiser les variables de suivi des coûts pour ce match
         global api_call_count, total_input_tokens, total_output_tokens, total_cost_usd, penalty_message_sent, interruption_message_sent
         api_call_count = 0
@@ -818,6 +832,13 @@ async def wait_for_match_start(fixture_id, teams=None, league=None, round_info=N
     # Note : On peut potentiellement vérifier ici (actuellement pas le cas) si la compo renvoyée par get_check_match_status et pas none et on pourrait retenter 5 minutes plus tard en mettant le script sur pause uniquement si paid api ?!
     log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time} et \n [DEBUG] match data :\n {match_data}\n\n")
 
+    # Sortie anticipée si le match a été reporté/annulé après l'annonce du matin :
+    # on évite l'appel /teams/statistics et l'appel LLM de la compo, inutiles ici.
+    if match_status in ('PST', 'CANC', 'ABD', 'AWD', 'WO'):
+        log_message(f"Match non joué (statut : {match_status}) : pas d'envoi de compo, fin du suivi")
+        await send_message_to_all_chats(f"🤖 : Le match a été reporté ou annulé (statut : {match_status}). Fin du suivi.")
+        return None, None, None, None
+
     # Récupération unique des stats de saison de notre équipe pour la ligue du match (1 seul appel API par match).
     # Mises en cache dans la variable globale current_season_stats pour réutilisation par
     # call_chatgpt_api_compomatch (analyse de début), call_chatgpt_api_endmatch (analyse de fin)
@@ -838,11 +859,17 @@ async def wait_for_match_start(fixture_id, teams=None, league=None, round_info=N
     while True:
         match_status, match_date, elapsed_time, match_data = await get_check_match_status(fixture_id)
 
-        if match_status and elapsed_time is not None:
-            # Sortir de la boucle si le match commence, ou est annulé pour X raisons
-            if elapsed_time > 0 or match_status in ('PST', 'CANC', 'ABD', 'AWD', 'WO'):
-                log_message(f"le match a commencé sorti de la boucle wait_for_match_start")      
-                break
+        # D'abord les statuts « le match ne se jouera pas » : l'API renvoie elapsed=null
+        # dessus, donc ils DOIVENT être testés avant toute garde sur elapsed_time
+        # (sinon la condition n'est jamais atteinte et la boucle tourne à l'infini).
+        if match_status in ('PST', 'CANC', 'ABD', 'AWD', 'WO'):
+            log_message(f"Le match ne se jouera pas (statut : {match_status}), sortie de la boucle")
+            break
+
+        if match_status and elapsed_time is not None and elapsed_time > 0:
+            log_message(f"le match a commencé sorti de la boucle wait_for_match_start")
+            break
+
         log_message("Le match n'a pas encore commencé, en attente...")
 
         # Si api gratuite utilisée Attendre 120 secondes avant de vérifier à nouveau (comme on envoie plus le message de début on peut limiter le nombre d'appels à l'api!)
@@ -1074,6 +1101,13 @@ async def is_match_today(max_retries=3):
             match_date = match_date.date()
             # Date du jour dans le fuseau configuré (et non celui de l'OS)
             today = datetime.datetime.now(server_timezone).date()
+
+            # L'API conserve la date d'origine pour un match reporté/annulé : sans ce
+            # filtre, un match PST (postponed) est annoncé comme ayant lieu aujourd'hui.
+            match_status_short = ((fixture_data.get('status') or {}).get('short') or '')
+            if match_date == today and match_status_short in ('PST', 'CANC', 'ABD', 'SUSP', 'INT', 'AWD', 'WO'):
+                log_message(f"Match du jour ignoré : statut {match_status_short} (reporté / annulé / interrompu).")
+                continue
 
             if match_date == today:
                 match_today = True
