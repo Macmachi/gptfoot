@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.8.4
+# VERSION : v2.8.5
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -204,6 +204,8 @@ total_cost_usd = 0.0
 match_tracking_start_time = None
 # Chemin du fichier de stockage des analyses de matchs
 match_analyses_path = os.path.join(script_dir, 'match_analyses.json')
+# Chemin du fichier mémorisant le dernier match annoncé (survit aux redémarrages)
+announced_fixture_path = os.path.join(script_dir, 'announced_fixture.json')
 
 # Permet de générer une exception si on dépasse le nombre de call api défini dans une de ces fonctions
 class RateLimitExceededError(Exception):
@@ -465,6 +467,34 @@ def get_last_n_completed_matches(n=5):
         log_message(f"Erreur lors de la récupération des derniers matchs terminés : {e}")
         return []
 
+# Mémorise sur disque le dernier match annoncé, pour survivre à un redémarrage
+# du serveur (reboot planifié, coupure, mise à jour...). Sans ça, un redémarrage
+# le jour d'un match ré-annonce le match une seconde fois aux utilisateurs.
+# On persiste UNIQUEMENT l'annonce : le suivi du match, lui, doit pouvoir reprendre
+# après un redémarrage (sinon les buts ne seraient plus notifiés du tout).
+def load_announced_fixture():
+    """Renvoie l'id du dernier match annoncé (persisté), ou None"""
+    try:
+        if os.path.exists(announced_fixture_path):
+            with open(announced_fixture_path, "r", encoding="utf-8") as file:
+                return json.load(file).get("fixture_id")
+    except json.JSONDecodeError:
+        log_message("announced_fixture.json corrompu, ignoré.", "WARNING")
+    except Exception as e:
+        log_message(f"Erreur lors de la lecture de announced_fixture.json : {e}", "ERROR")
+    return None
+
+def save_announced_fixture(fixture_id):
+    """Persiste l'id du match qui vient d'être annoncé"""
+    try:
+        write_json_atomic(announced_fixture_path, {
+            "fixture_id": fixture_id,
+            "announced_at": datetime.datetime.now(server_timezone).isoformat()
+        })
+        log_message(f"Match {fixture_id} marqué comme annoncé (persisté sur disque).")
+    except Exception as e:
+        log_message(f"Erreur lors de l'écriture de announced_fixture.json : {e}", "ERROR")
+
 # Supprime une entrée de l'historique (match reporté, annulé ou abandonné).
 # Sans ça, l'entrée créée au moment de la compo resterait incomplète (score vide,
 # analyse finale absente), occuperait un des 5 slots de contexte et injecterait
@@ -709,6 +739,13 @@ async def check_matches():
             return
         current_tracked_fixture_id = fixture_id
 
+        # Le match a-t-il déjà été annoncé avant un redémarrage du serveur ?
+        # Si oui on saute l'annonce, mais on reprend quand même le suivi : bloquer
+        # le suivi ici priverait les utilisateurs de toutes les notifications du match.
+        already_announced = (load_announced_fixture() == fixture_id)
+        if already_announced:
+            log_message(f"Match {fixture_id} déjà annoncé avant redémarrage — annonce ignorée, suivi repris.")
+
         # Réinitialiser les variables de suivi des coûts pour ce match
         global api_call_count, total_input_tokens, total_output_tokens, total_cost_usd, penalty_message_sent, interruption_message_sent
         api_call_count = 0
@@ -733,7 +770,10 @@ async def check_matches():
             # Calculer le temps pour envoyer le message 15 minutes avant le début du match
             seconds_until_message = max(0, seconds_until_match_start - 900)  # 900 secondes = 15 minutes
             # On envoie le message pour annoncer qu'il y a un match aujourd'hui
-            await send_match_today_message(match_start_time, fixture_id, current_league_id, teams, league, round_info, venue, city)
+            # (sauf s'il a déjà été annoncé avant un redémarrage du serveur)
+            if not already_announced:
+                await send_match_today_message(match_start_time, fixture_id, current_league_id, teams, league, round_info, venue, city)
+                save_announced_fixture(fixture_id)
 
             # Attendre jusqu'à l'heure d'envoi du message 15 minutes avant le début du match
             await asyncio.sleep(seconds_until_message)

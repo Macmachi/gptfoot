@@ -1,5 +1,27 @@
 # ⚽ gptfoot (Telegram/Discord bot)
 
+## 📑 Table of Contents
+* [🌐 Overview](#-overview)
+* [🛠 Features](#-features)
+* [🚀 Setup](#-setup)
+* [🔧 Configuration](#-configuration)
+  * [`[KEYS]`](#keys)
+  * [`[OPTIONS]`](#options)
+  * [`[API_MODELS]`](#api_models)
+  * [`[API_PRICING]`](#api_pricing)
+  * [`[SERVER]`](#server)
+  * [`[LANGUAGES]`](#languages)
+  * [`[LEAGUE_TYPES]`](#league_types-optional-new-in-v260)
+* [📋 Good to know](#-good-to-know)
+* [🆕 Changelog](#-changelog)
+  * [v2.8.5](#-whats-new-in-v285) · [v2.8.4](#-whats-new-in-v284) · [v2.8.3](#-whats-new-in-v283) · [v2.8.2](#-whats-new-in-v282) · [v2.8.1](#-whats-new-in-v281) · [v2.8.0](#-whats-new-in-v280)
+  * [v2.7.0](#-whats-new-in-v270) · [v2.6.1](#-whats-new-in-v261) · [v2.6.0](#-whats-new-in-v260) · [v2.5.0](#-whats-new-in-v250)
+* [✅ Known Issues - Resolution Status](#-known-issues---resolution-status)
+* [📊 Technical Improvements](#-technical-improvements)
+* [🌟 Potential future updates](#-potential-future-updates)
+* [🛠 Demo & press articles](#-demo--press-articles)
+* [📝 Licence](#-licence)
+
 ## 🌐 Overview
 gptfoot is a bot for Telegram and Discord, meticulously designed to track match events for clubs across multiple leagues, all while minimizing message volume. It utilizes cutting-edge AI technology (OpenRouter API with MiniMax-M3, GPT-4o, Claude, Gemini and more) to provide live match commentary. The bot offers a broad range of features, from showcasing team lineups to reporting goals, red cards, and delivering comprehensive match analyses, all backed by advanced AI capabilities. It's a game-changer for those looking to stay updated on matches in a seamless and informative way.
 
@@ -26,6 +48,11 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Works with the free version of api-football (up to 100 calls per day)
 * Support for dozens of languages
 * Configurable AI models (OpenRouter API)
+
+## 🆕 Changelog
+
+## 🆕 What's New in v2.8.5
+* ✅ **Fix — No duplicate announcement after a server reboot**: the "already announced and tracked" guard added in v2.8.3 lived in memory only, so a scheduled reboot (or any restart) on a match day made the bot announce the same match a second time. The announced fixture is now persisted in `announced_fixture.json` (gitignored, written atomically) and re-read at startup. **Only the announcement is skipped — live tracking still resumes after the restart**, so goal notifications are never lost. A corrupted or missing file degrades gracefully (the match is simply announced).
 
 ## 🆕 What's New in v2.8.4
 Postponed and abandoned matches used to leave a **ghost entry** in `match_analyses.json`: the entry is created when the lineup message is sent, but a match that never finishes never gets its final analysis. Four fixes, all local logic — **no additional api-football call, no extra LLM call**:
@@ -169,6 +196,7 @@ Verified on a simulated 40-match season with periodic postponements: the history
 * Log files are automatically rotated when they reach 10 MB, keeping the last 5 backups
 * API costs are tracked and summarized at the end of each match (when enabled in `config.ini`)
 * Match analyses are stored locally in `match_analyses.json` for contextual AI insights
+* The last announced fixture is stored in `announced_fixture.json` so a server reboot on a match day does not re-announce the same match (tracking still resumes normally)
 * Season stats are NOT persisted on disk — they are fetched once per match and cached only in memory for the duration of that match
 * [Free API] Due to API call limitations, 5-minute breaks during extra time are considered as regular half-times, causing the script to pause for 13 minutes
 * [Free API] Due to API call limitations, during penalty shootout sessions, the script pauses for 20 minutes (good to know but penalty goals are managed differently than goals during a match)

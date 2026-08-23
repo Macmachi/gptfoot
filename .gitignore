@@ -4,6 +4,7 @@ config.ini
 # Generated runtime files
 *.log
 match_analyses.json
+announced_fixture.json
 telegram_chat_ids.json
 discord_channels.json
 
