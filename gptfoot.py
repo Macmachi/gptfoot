@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.8.3
+# VERSION : v2.8.4
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -426,18 +426,23 @@ def save_match_analysis(fixture_id, match_info, pre_match_analysis, post_match_a
             data["matches"].append(match_entry)
             log_message(f"Match {fixture_id} ajouté à l'historique")
         
-        # Garder seulement les 5 derniers matchs (utilisés pour le contexte)
-        if len(data["matches"]) > 5:
-            data["matches"] = data["matches"][-5:]
-            log_message(f"Historique limité à 5 matchs")
-        
+        # Garder les 5 derniers matchs TERMINÉS + l'entrée du match en cours.
+        # Compter l'entrée en cours dans le quota évincerait un vrai match dès l'envoi
+        # de la compo : si ce match est ensuite reporté/abandonné, le match évincé est
+        # perdu et le contexte IA tombe à 4 matchs au lieu de 5.
+        completed = [m for m in data["matches"] if m.get("post_match_analysis")]
+        pending = [m for m in data["matches"] if not m.get("post_match_analysis")]
+        if len(completed) > 5 or len(pending) > 1:
+            data["matches"] = completed[-5:] + pending[-1:]
+            log_message(f"Historique limité à 5 matchs terminés (+ match en cours)")
+
         save_match_history(data)
     except Exception as e:
         log_message(f"Erreur lors de la sauvegarde de l'analyse du match : {e}")
 
-# Fonction pour récupérer les N derniers matchs
+# Fonction pour récupérer les N derniers matchs (toutes entrées, y compris le match en cours)
 def get_last_n_matches(n=5):
-    """Récupère les N derniers matchs de l'historique"""
+    """Récupère les N dernières entrées de l'historique (match en cours inclus)"""
     try:
         data = load_match_history()
         matches = data.get("matches", [])
@@ -446,28 +451,68 @@ def get_last_n_matches(n=5):
         log_message(f"Erreur lors de la récupération des derniers matchs : {e}")
         return []
 
+# Fonction pour récupérer les N derniers matchs TERMINÉS (pour le contexte IA)
+def get_last_n_completed_matches(n=5):
+    """Récupère les N derniers matchs réellement terminés (avec analyse finale).
+    Exclut l'entrée du match en cours et les matchs reportés/abandonnés, qui
+    n'apportent aucun contexte utile au modèle."""
+    try:
+        data = load_match_history()
+        matches = data.get("matches", [])
+        completed = [m for m in matches if m.get("post_match_analysis")]
+        return completed[-n:]
+    except Exception as e:
+        log_message(f"Erreur lors de la récupération des derniers matchs terminés : {e}")
+        return []
+
+# Supprime une entrée de l'historique (match reporté, annulé ou abandonné).
+# Sans ça, l'entrée créée au moment de la compo resterait incomplète (score vide,
+# analyse finale absente), occuperait un des 5 slots de contexte et injecterait
+# du bruit dans les prompts. Aucun appel API : pure gestion du fichier local.
+def remove_match_from_history(fixture_id):
+    """Retire le match donné de l'historique s'il y figure (match non joué / abandonné)"""
+    if not fixture_id:
+        return
+    try:
+        data = load_match_history()
+        matches = data.get("matches", [])
+        remaining = [m for m in matches if m.get("fixture_id") != fixture_id]
+        if len(remaining) != len(matches):
+            data["matches"] = remaining
+            save_match_history(data)
+            log_message(f"Match {fixture_id} retiré de l'historique (non joué / abandonné).")
+    except Exception as e:
+        log_message(f"Erreur lors du retrait du match {fixture_id} de l'historique : {e}", "ERROR")
+
 # Fonction pour formater l'historique des matchs pour le contexte IA
 def format_match_history_for_context(matches):
     """Formate l'historique des matchs pour l'inclusion dans le contexte IA avec analyses complètes"""
     if not matches:
         return "Aucun match précédent disponible."
-    
+
+    # Filet de sécurité : ne garder que les matchs réellement terminés (analyse finale
+    # présente). Une entrée incomplète (match reporté/abandonné après l'envoi de la compo)
+    # afficherait sinon "? - ?" et le littéral "None" dans le prompt.
+    complete = [m for m in matches if m.get("post_match_analysis")]
+    if not complete:
+        return "Aucun match précédent disponible."
+
     formatted = "📊 HISTORIQUE DES 5 DERNIERS MATCHS (ANALYSES COMPLÈTES):\n"
-    for i, match in enumerate(matches, 1):
+    for i, match in enumerate(complete, 1):
         date = match.get("date", "Unknown")
         league = match.get("league", "Unknown")
         home = match.get("teams", {}).get("home", "Unknown")
         away = match.get("teams", {}).get("away", "Unknown")
-        score = match.get("score", {})
+        score = match.get("score") or {}
         home_score = score.get("home", "?")
         away_score = score.get("away", "?")
-        analysis = match.get("post_match_analysis", "Pas d'analyse disponible")
-        
+        analysis = match.get("post_match_analysis")
+
         # Inclure l'analyse COMPLÈTE sans troncature pour ne pas perdre d'informations importantes
         formatted += f"\n{i}. {date} - {league}\n"
         formatted += f"   {home} {home_score} - {away_score} {away}\n"
         formatted += f"   Analyse complète:\n{analysis}\n"
-    
+
     return formatted
 
 ### FIN DE GESTION DU STOCKAGE DES ANALYSES DE MATCHS
@@ -877,15 +922,18 @@ async def wait_for_match_start(fixture_id, teams=None, league=None, round_info=N
         await asyncio.sleep(sleep_time)    
 
     # Retourner None si le match est reporté ou annulé
+    # (la compo a déjà été envoyée ici : on retire l'entrée d'historique devenue orpheline)
     if match_status in ('PST', 'CANC', 'ABD'):
-        log_message(f"Le statut du match indique qu'il a été annulé ou reporté")  
+        log_message(f"Le statut du match indique qu'il a été annulé ou reporté")
         message = f"🤖 : Le statut du match indique qu'il a été annulé ou reporté"
         await send_message_to_all_chats(message)
+        remove_match_from_history(fixture_id)
         return None, None, None, None
     elif match_status in ('AWD', 'WO'):
         log_message(f"Défaite technique ou victoire par forfait ou absence de compétiteur")
         message = f"🤖 : Défaite technique ou victoire par forfait ou absence de compétiteur"
         await send_message_to_all_chats(message)
+        remove_match_from_history(fixture_id)
         return None, None, None, None
     else:
         log_message(f"match_status: {match_status}, match_date: {match_date}, elapsed_time: {elapsed_time}, match_data (pas log)\n")  
@@ -1642,7 +1690,7 @@ async def check_events(fixture_id):
                     away_score = match_data['score']['fulltime']['away']
 
                 log_message(f"Envoi des variables à send_end_message avec chat_ids: home_team: {home_team}, away_team: {away_team}, home_score: {home_score}, away_score: {away_score}, match_statistics: {match_statistics}, events: {events}\n")
-                await send_end_message(home_team, away_team, home_score, away_score, match_statistics, events)
+                await send_end_message(home_team, away_team, home_score, away_score, match_statistics, events, fixture_id)
                 break
 
             # Statuts terminaux sans fin de match classique (abandon, annulation, report, forfait).
@@ -1650,6 +1698,10 @@ async def check_events(fixture_id):
             if match_status in ('ABD', 'CANC', 'PST', 'AWD', 'WO'):
                 log_message(f"Le match ne reprendra pas (statut : {match_status}), arrêt du suivi.")
                 await send_message_to_all_chats(f"🤖 : Le match ne reprendra pas (statut : {match_status}). Fin du suivi.")
+                # Le match n'aura pas d'analyse finale : on retire son entrée d'historique
+                # (créée à l'envoi de la compo) pour ne pas polluer le contexte des prompts
+                # ni consommer un des 5 slots conservés.
+                remove_match_from_history(fixture_id)
                 log_cost_summary()
                 break
 
@@ -2141,7 +2193,7 @@ def format_raw_events(events, home_team, away_team):
     return formatted
 
 # Envoie un message de fin de match aux utilisateurs avec le score final.
-async def send_end_message(home_team, away_team, home_score, away_score, match_statistics, events):
+async def send_end_message(home_team, away_team, home_score, away_score, match_statistics, events, fixture_id=None):
     log_message("send_end_message() appelée.")
     message = f"🏁 Fin du match !\n{home_team} {home_score} - {away_score} {away_team}\n\n"
     
@@ -2171,18 +2223,28 @@ async def send_end_message(home_team, away_team, home_score, away_score, match_s
     try:
         data = load_match_history()
         if data.get("matches"):
-            # Mettre à jour le dernier match avec l'analyse post-match
-            last_match = data["matches"][-1]
-            last_match["score"] = {
-                "home": home_score,
-                "away": away_score
-            }
-            # Ne pas écraser l'historique avec un échec d'analyse (None) : le contexte
-            # des prochains prompts afficherait sinon un message d'erreur comme analyse
-            last_match["post_match_analysis"] = chatgpt_analysis or None
-            league_name_for_stats = last_match.get("league")
-            save_match_history(data)
-            log_message(f"Analyse post-match sauvegardée pour le match {last_match.get('fixture_id')}")
+            # Cibler l'entrée par fixture_id : une mise à jour aveugle du dernier
+            # élément peut coller le score et l'analyse de CE match sur l'entrée d'un
+            # autre (ex. match précédent reporté, ou compo du match courant non sauvegardée).
+            target_match = None
+            if fixture_id:
+                for match in data["matches"]:
+                    if match.get("fixture_id") == fixture_id:
+                        target_match = match
+                        break
+            if target_match is None:
+                log_message(f"Aucune entrée d'historique pour le match {fixture_id}, mise à jour ignorée.", "WARNING")
+            else:
+                target_match["score"] = {
+                    "home": home_score,
+                    "away": away_score
+                }
+                # Ne pas écraser l'historique avec un échec d'analyse (None) : le contexte
+                # des prochains prompts afficherait sinon un message d'erreur comme analyse
+                target_match["post_match_analysis"] = chatgpt_analysis or None
+                league_name_for_stats = target_match.get("league")
+                save_match_history(data)
+                log_message(f"Analyse post-match sauvegardée pour le match {target_match.get('fixture_id')}")
     except Exception as e:
         log_message(f"Erreur lors de la sauvegarde de l'analyse post-match : {e}")
 
@@ -2451,8 +2513,8 @@ async def call_chatgpt_api_compomatch(match_data, predictions=None):
     if season_stats_line:
         user_message += f"\n\n{season_stats_line}"
 
-    # Ajouter l'historique des 5 derniers matchs pour enrichir le contexte
-    last_matches = get_last_n_matches(5)
+    # Ajouter l'historique des 5 derniers matchs TERMINÉS pour enrichir le contexte
+    last_matches = get_last_n_completed_matches(5)
     if last_matches and len(last_matches) > 0:
         match_history_context = format_match_history_for_context(last_matches)
         user_message += f"\n\n{match_history_context}"
@@ -2557,14 +2619,16 @@ async def call_chatgpt_api_endmatch(match_statistics, events, home_team, home_sc
     season_year = int(SEASON_ID)
     current_season = f"{season_year}-{season_year + 1}"
     
-    # Récupérer l'analyse pré-match et l'historique des 5 derniers matchs
-    last_matches = get_last_n_matches(5)
-    match_history_context = format_match_history_for_context(last_matches)
-    
-    # Récupérer l'analyse pré-match du match actuel (le dernier match dans l'historique)
+    # Historique de contexte : uniquement les matchs TERMINÉS (le match en cours et les
+    # matchs reportés/abandonnés n'ont pas d'analyse finale et ne servent à rien ici)
+    match_history_context = format_match_history_for_context(get_last_n_completed_matches(5))
+
+    # Récupérer l'analyse pré-match du match actuel (dernière entrée de l'historique,
+    # encore sans analyse finale à ce stade : on prend donc bien toutes les entrées)
     pre_match_analysis = ""
-    if last_matches and len(last_matches) > 0:
-        pre_match_analysis = last_matches[-1].get("pre_match_analysis", "")
+    all_entries = get_last_n_matches(5)
+    if all_entries and len(all_entries) > 0:
+        pre_match_analysis = all_entries[-1].get("pre_match_analysis", "")
         if not pre_match_analysis:
             pre_match_analysis = ""
     

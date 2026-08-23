@@ -27,6 +27,15 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Support for dozens of languages
 * Configurable AI models (OpenRouter API)
 
+## 🆕 What's New in v2.8.4
+Postponed and abandoned matches used to leave a **ghost entry** in `match_analyses.json`: the entry is created when the lineup message is sent, but a match that never finishes never gets its final analysis. Four fixes, all local logic — **no additional api-football call, no extra LLM call**:
+* ✅ **Fix — Wrong match updated in history**: `send_end_message` updated `matches[-1]` blindly. If the current match had no history entry (e.g. its lineup analysis failed to save), the score and analysis were written onto **another match's entry** — a postponed one, for instance. The entry is now located by `fixture_id`, and the update is skipped (with a warning) if no matching entry exists.
+* ✅ **Fix — Ghost entries removed**: a match that is postponed, cancelled, abandoned or forfeited now has its history entry deleted (`remove_match_from_history`), instead of lingering with an empty score and no analysis.
+* ✅ **Fix — Ghost entries no longer evicted a real match**: the 5-match cap counted the in-progress entry, so creating it at lineup time pushed the oldest real match out of history — permanently, even if that match was later postponed and purged. The cap now keeps **the last 5 completed matches plus the in-progress entry**.
+* ✅ **Fix — No more noise in AI prompts**: incomplete entries rendered as `? - ?` and a literal `None` in the history block (`.get(key, default)` returned `None` because the key existed with a `None` value). A new `get_last_n_completed_matches()` feeds the prompts only with matches that actually finished, and `format_match_history_for_context()` filters incomplete entries as a safety net.
+
+Verified on a simulated 40-match season with periodic postponements: the history file stays bounded (max 6 entries), the AI context always holds exactly 5 real matches, and no completed match is ever lost.
+
 ## 🆕 What's New in v2.8.3
 * ✅ **Fix — Double announcement and double tracking**: the startup check (`run_initial_check`) and the daily 09:00 check could both pick up the same fixture, announcing the match twice **and** running two concurrent tracking loops (duplicate lineups, duplicate goal messages, doubled api-football quota consumption). A `current_tracked_fixture_id` guard now makes the second check return immediately for an already-tracked fixture. *(Known limitation: the flag lives in memory, so a bot restart on the same day re-announces once.)*
 * ✅ **Fix — Postponed matches announced as taking place today**: api-football keeps the original date on a postponed fixture, so a `PST` match was announced as happening today. `is_match_today()` now skips fixtures whose status is `PST`, `CANC`, `ABD`, `SUSP`, `INT`, `AWD` or `WO`.
