@@ -14,7 +14,7 @@
   * [`[LEAGUE_TYPES]`](#league_types-optional-new-in-v260)
 * [📋 Good to know](#-good-to-know)
 * [🆕 Changelog](#-changelog)
-  * [v2.8.5](#-whats-new-in-v285) · [v2.8.4](#-whats-new-in-v284) · [v2.8.3](#-whats-new-in-v283) · [v2.8.2](#-whats-new-in-v282) · [v2.8.1](#-whats-new-in-v281) · [v2.8.0](#-whats-new-in-v280)
+  * [v2.8.6](#-whats-new-in-v286) · [v2.8.5](#-whats-new-in-v285) · [v2.8.4](#-whats-new-in-v284) · [v2.8.3](#-whats-new-in-v283) · [v2.8.2](#-whats-new-in-v282) · [v2.8.1](#-whats-new-in-v281) · [v2.8.0](#-whats-new-in-v280)
   * [v2.7.0](#-whats-new-in-v270) · [v2.6.1](#-whats-new-in-v261) · [v2.6.0](#-whats-new-in-v260) · [v2.5.0](#-whats-new-in-v250)
 * [✅ Known Issues - Resolution Status](#-known-issues---resolution-status)
 * [📊 Technical Improvements](#-technical-improvements)
@@ -50,6 +50,14 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Configurable AI models (OpenRouter API)
 
 ## 🆕 Changelog
+
+## 🆕 What's New in v2.8.6
+* ✅ **Fix — Live tracking no longer dies on a VAR event without detail**: during an ongoing VAR review, api-football can publish a `Var` event whose `detail` is `null`. The `"Goal Disallowed" in event['detail']` test then raised `TypeError: argument of type 'NoneType' is not iterable`, the exception escaped `check_events` and the bot silently stopped following the match (no more goals, no final score, no analysis). The test is now `None`-safe.
+* ✅ **Robustness — One bad event can no longer stop the whole match**: each event in `check_events` is now processed in its own `try/except`. A malformed event is logged with its full traceback and skipped, and the remaining events are still handled.
+* ✅ **Robustness — The tracking loop survives unexpected errors**: any other unexpected exception inside the polling loop is logged with its traceback and the loop retries at the next cycle instead of aborting. After 10 consecutive errors the tracking stops with an explicit error to avoid looping forever on a persistent failure.
+* ✅ **Fix — Tracking guard released at the end of the match**: `current_tracked_fixture_id` was never reset, so a match postponed after its announcement and rescheduled under the same fixture id was silently skipped by the daily check until the next bot restart. The guard is now released when the tracking ends, normally or on error.
+
+**No additional api-football call, no extra LLM call.**
 
 ## 🆕 What's New in v2.8.5
 * ✅ **Fix — No duplicate announcement after a server reboot**: the "already announced and tracked" guard added in v2.8.3 lived in memory only, so a scheduled reboot (or any restart) on a match day made the bot announce the same match a second time. The announced fixture is now persisted in `announced_fixture.json` (gitignored, written atomically) and re-read at startup. **Only the announcement is skipped — live tracking still resumes after the restart**, so goal notifications are never lost. A corrupted or missing file degrades gracefully (the match is simply announced).

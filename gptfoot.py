@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.8.5
+# VERSION : v2.8.6
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -22,6 +22,7 @@ import time
 import atexit
 import signal
 import sys
+import traceback
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -738,75 +739,82 @@ async def check_matches():
             log_message(f"Match {fixture_id} déjà annoncé et suivi par une autre tâche — check ignoré.")
             return
         current_tracked_fixture_id = fixture_id
+        try:
 
-        # Le match a-t-il déjà été annoncé avant un redémarrage du serveur ?
-        # Si oui on saute l'annonce, mais on reprend quand même le suivi : bloquer
-        # le suivi ici priverait les utilisateurs de toutes les notifications du match.
-        already_announced = (load_announced_fixture() == fixture_id)
-        if already_announced:
-            log_message(f"Match {fixture_id} déjà annoncé avant redémarrage — annonce ignorée, suivi repris.")
+            # Le match a-t-il déjà été annoncé avant un redémarrage du serveur ?
+            # Si oui on saute l'annonce, mais on reprend quand même le suivi : bloquer
+            # le suivi ici priverait les utilisateurs de toutes les notifications du match.
+            already_announced = (load_announced_fixture() == fixture_id)
+            if already_announced:
+                log_message(f"Match {fixture_id} déjà annoncé avant redémarrage — annonce ignorée, suivi repris.")
 
-        # Réinitialiser les variables de suivi des coûts pour ce match
-        global api_call_count, total_input_tokens, total_output_tokens, total_cost_usd, penalty_message_sent, interruption_message_sent
-        api_call_count = 0
-        total_input_tokens = 0
-        total_output_tokens = 0
-        total_cost_usd = 0.0
-        # Réinitialiser les flags de message pour le nouveau match
-        penalty_message_sent = False
-        interruption_message_sent = False
+            # Réinitialiser les variables de suivi des coûts pour ce match
+            global api_call_count, total_input_tokens, total_output_tokens, total_cost_usd, penalty_message_sent, interruption_message_sent
+            api_call_count = 0
+            total_input_tokens = 0
+            total_output_tokens = 0
+            total_cost_usd = 0.0
+            # Réinitialiser les flags de message pour le nouveau match
+            penalty_message_sent = False
+            interruption_message_sent = False
         
-        # Vider le fichier de logs si un match est trouvé
-        clear_log()
-        log_message(f"un match a été trouvé")
-        log_message(f"[COST_TRACKING] Début du suivi des coûts pour le match")
-        # Vérifie que match_start_time n'est pas None et qu'il a des attributs hour et minute.
-        if match_start_time and hasattr(match_start_time, 'hour') and hasattr(match_start_time, 'minute'):
-            # Heure "aware" dans le fuseau configuré, cohérente avec match_start_time
-            now = datetime.datetime.now(server_timezone)
-            match_start_datetime = now.replace(hour=match_start_time.hour, minute=match_start_time.minute, second=0, microsecond=0)
-            seconds_until_match_start = (match_start_datetime - now).total_seconds()
-            log_message(f"Il reste {seconds_until_match_start} secondes avant le début du match.")
-            # Calculer le temps pour envoyer le message 15 minutes avant le début du match
-            seconds_until_message = max(0, seconds_until_match_start - 900)  # 900 secondes = 15 minutes
-            # On envoie le message pour annoncer qu'il y a un match aujourd'hui
-            # (sauf s'il a déjà été annoncé avant un redémarrage du serveur)
-            if not already_announced:
-                await send_match_today_message(match_start_time, fixture_id, current_league_id, teams, league, round_info, venue, city)
-                save_announced_fixture(fixture_id)
+            # Vider le fichier de logs si un match est trouvé
+            clear_log()
+            log_message(f"un match a été trouvé")
+            log_message(f"[COST_TRACKING] Début du suivi des coûts pour le match")
+            # Vérifie que match_start_time n'est pas None et qu'il a des attributs hour et minute.
+            if match_start_time and hasattr(match_start_time, 'hour') and hasattr(match_start_time, 'minute'):
+                # Heure "aware" dans le fuseau configuré, cohérente avec match_start_time
+                now = datetime.datetime.now(server_timezone)
+                match_start_datetime = now.replace(hour=match_start_time.hour, minute=match_start_time.minute, second=0, microsecond=0)
+                seconds_until_match_start = (match_start_datetime - now).total_seconds()
+                log_message(f"Il reste {seconds_until_match_start} secondes avant le début du match.")
+                # Calculer le temps pour envoyer le message 15 minutes avant le début du match
+                seconds_until_message = max(0, seconds_until_match_start - 900)  # 900 secondes = 15 minutes
+                # On envoie le message pour annoncer qu'il y a un match aujourd'hui
+                # (sauf s'il a déjà été annoncé avant un redémarrage du serveur)
+                if not already_announced:
+                    await send_match_today_message(match_start_time, fixture_id, current_league_id, teams, league, round_info, venue, city)
+                    save_announced_fixture(fixture_id)
 
-            # Attendre jusqu'à l'heure d'envoi du message 15 minutes avant le début du match
-            await asyncio.sleep(seconds_until_message)
-            # Envoyer le message si IS_PAID_API est vrai
-            if IS_PAID_API:
-                # Attendez que le match débute réellement qui est vérifié dans wait_for_match_start
-                match_data = (await wait_for_match_start(fixture_id, teams, league, round_info, venue, city))[3]
-                log_message(f"match_data reçu de wait_for_match_start dans check_matches {match_data}\n")
+                # Attendre jusqu'à l'heure d'envoi du message 15 minutes avant le début du match
+                await asyncio.sleep(seconds_until_message)
+                # Envoyer le message si IS_PAID_API est vrai
+                if IS_PAID_API:
+                    # Attendez que le match débute réellement qui est vérifié dans wait_for_match_start
+                    match_data = (await wait_for_match_start(fixture_id, teams, league, round_info, venue, city))[3]
+                    log_message(f"match_data reçu de wait_for_match_start dans check_matches {match_data}\n")
             
-            else:
-                # Attendre jusqu'au début du match pour envoyer la compo et voir le match a réellement commencé si on utilise l'api free pour limiter les calls à l'api
-                # On vérifie pas ici si le match a déjà commencé car la structure du code fait en sorte qu'on puisse pas lancer le script pendant un match qui a commencé pour récuprer ses infos il faut attendre les matchs suivants.
-                remaining_seconds = max(0, seconds_until_match_start - seconds_until_message)
-                await asyncio.sleep(remaining_seconds)
-                log_message(f"Fin de l'attente jusqu'à l'heure prévu de début de match")
-                # Attendez que le match débute réellement
-                match_data = (await wait_for_match_start(fixture_id, teams, league, round_info, venue, city))[3]
-                log_message(f"match_data reçu de wait_for_match_start dans check_matches {match_data}\n")
+                else:
+                    # Attendre jusqu'au début du match pour envoyer la compo et voir le match a réellement commencé si on utilise l'api free pour limiter les calls à l'api
+                    # On vérifie pas ici si le match a déjà commencé car la structure du code fait en sorte qu'on puisse pas lancer le script pendant un match qui a commencé pour récuprer ses infos il faut attendre les matchs suivants.
+                    remaining_seconds = max(0, seconds_until_match_start - seconds_until_message)
+                    await asyncio.sleep(remaining_seconds)
+                    log_message(f"Fin de l'attente jusqu'à l'heure prévu de début de match")
+                    # Attendez que le match débute réellement
+                    match_data = (await wait_for_match_start(fixture_id, teams, league, round_info, venue, city))[3]
+                    log_message(f"match_data reçu de wait_for_match_start dans check_matches {match_data}\n")
         
-            # Envoyez le message de début de match et commencez à vérifier les événements
-            if match_data is not None:
-                log_message(f"Envoie du message de début de match avec send_start_message (uniquement utile pour l'api payante avec interval court)")
-                await send_start_message()
-                log_message(f"Check des événements du match avec check_events")
-                # Réinitialiser les événements envoyés au début de chaque match
-                sent_events.clear()
-                sent_events_details.clear()
-                log_message(f"sent_events et sent_events_details vidés pour le nouveau match, taille: {len(sent_events)}")
-                await check_events(fixture_id)
+                # Envoyez le message de début de match et commencez à vérifier les événements
+                if match_data is not None:
+                    log_message(f"Envoie du message de début de match avec send_start_message (uniquement utile pour l'api payante avec interval court)")
+                    await send_start_message()
+                    log_message(f"Check des événements du match avec check_events")
+                    # Réinitialiser les événements envoyés au début de chaque match
+                    sent_events.clear()
+                    sent_events_details.clear()
+                    log_message(f"sent_events et sent_events_details vidés pour le nouveau match, taille: {len(sent_events)}")
+                    await check_events(fixture_id)
+                else:
+                    log_message(f"Pas de match_data pour l'instant (fonction check_matches), résultat de match_data : {match_data}")
             else:
-                log_message(f"Pas de match_data pour l'instant (fonction check_matches), résultat de match_data : {match_data}")
-        else:
-                    log_message(f"Pas d'heure de début de match")
+                        log_message(f"Pas d'heure de début de match")
+        finally:
+            # Le suivi de ce match est terminé (fin normale ou erreur) : on libère la garde
+            # pour qu'un match reporté puis reprogrammé (même fixture_id) puisse être suivi
+            # par le check quotidien sans attendre un redémarrage du bot.
+            if current_tracked_fixture_id == fixture_id:
+                current_tracked_fixture_id = None
     else:
         log_message(f"Aucun match prévu aujourd'hui")
 
@@ -1474,6 +1482,12 @@ async def check_events(fixture_id):
     is_first_event = True
     # Nouvelle liste pour stocker temporairement les événements de but
     goal_events = []
+    # Intervalle par défaut, utilisé si une erreur survient avant son calcul dans la boucle
+    interval = 15 if IS_PAID_API else 60
+    # Compteur d'erreurs inattendues consécutives : au-delà du seuil, on arrête le suivi
+    # plutôt que de boucler indéfiniment sur une erreur persistante.
+    consecutive_errors = 0
+    MAX_CONSECUTIVE_ERRORS = 10
 
     while True:
         try:
@@ -1533,114 +1547,124 @@ async def check_events(fixture_id):
 
             # Boucle pour vérifier les événements
             for event in events:
-                # Vérifier si match_data n'est pas None
-                if match_data is None:
-                    log_message("match_data est None, impossible de continuer le traitement des événements")
-                    break
+                try:
+                    # Vérifier si match_data n'est pas None
+                    if match_data is None:
+                        log_message("match_data est None, impossible de continuer le traitement des événements")
+                        break
                 
-                # Vérifiez si l'attribut 'player' existe sinon on lui attribue une valeur nulle
-                player_id = event['player']['id'] if 'player' in event and event['player'] is not None else None
-                # On créé une clé uniquement pour identifier l'événement en question
-                event_key = f"{event['type']}_{event['time']['elapsed']}_{player_id}"
-                # Clé pour détecter les corrections (inclut le timing pour distinguer les doublés)
-                event_key_sub = f"{event['type']}_{player_id}_{event['time']['elapsed']}"
+                    # Vérifiez si l'attribut 'player' existe sinon on lui attribue une valeur nulle
+                    player_id = event['player']['id'] if 'player' in event and event['player'] is not None else None
+                    # On créé une clé uniquement pour identifier l'événement en question
+                    event_key = f"{event['type']}_{event['time']['elapsed']}_{player_id}"
+                    # Clé pour détecter les corrections (inclut le timing pour distinguer les doublés)
+                    event_key_sub = f"{event['type']}_{player_id}_{event['time']['elapsed']}"
 
-                # ISSUE 6: Vérifier si l'événement a déjà été envoyé et si le timing a changé
-                if event_key_sub in sent_events_details:
-                    old_data = sent_events_details[event_key_sub]
-                    old_time = old_data.get('time')
-                    new_time = event['time']['elapsed']
+                    # ISSUE 6: Vérifier si l'événement a déjà été envoyé et si le timing a changé
+                    if event_key_sub in sent_events_details:
+                        old_data = sent_events_details[event_key_sub]
+                        old_time = old_data.get('time')
+                        new_time = event['time']['elapsed']
                     
-                    # Vérifier si c'est une vraie correction (petite différence de timing) ou un doublon (nouveau but)
-                    # Si la différence est > 2 minutes, c'est probablement un nouveau but (doublon), pas une correction
-                    time_difference = abs(new_time - old_time) if old_time is not None else 0
+                        # Vérifier si c'est une vraie correction (petite différence de timing) ou un doublon (nouveau but)
+                        # Si la différence est > 2 minutes, c'est probablement un nouveau but (doublon), pas une correction
+                        time_difference = abs(new_time - old_time) if old_time is not None else 0
                     
-                    if old_time is not None and old_time != new_time and not old_data.get('correction_sent', False):
-                        if time_difference <= 2:
-                            # Petite différence (≤2 min) = correction de timing du même but
-                            player_name = old_data.get('player_name', 'Joueur inconnu')
-                            team_name = old_data.get('team_name', 'Équipe inconnue')
-                            message = f"⚠️ Correction: Le but de {player_name} ({team_name}) était à {new_time}' (et non {old_time}')"
-                            await send_message_to_all_chats(message)
-                            log_message(f"Correction de timing envoyée: {old_time}' → {new_time}' pour {player_name}")
+                        if old_time is not None and old_time != new_time and not old_data.get('correction_sent', False):
+                            if time_difference <= 2:
+                                # Petite différence (≤2 min) = correction de timing du même but
+                                player_name = old_data.get('player_name', 'Joueur inconnu')
+                                team_name = old_data.get('team_name', 'Équipe inconnue')
+                                message = f"⚠️ Correction: Le but de {player_name} ({team_name}) était à {new_time}' (et non {old_time}')"
+                                await send_message_to_all_chats(message)
+                                log_message(f"Correction de timing envoyée: {old_time}' → {new_time}' pour {player_name}")
                             
-                            # Mettre à jour le timing et marquer correction envoyée
-                            sent_events_details[event_key_sub]['time'] = new_time
-                            sent_events_details[event_key_sub]['correction_sent'] = True
-                            continue
+                                # Mettre à jour le timing et marquer correction envoyée
+                                sent_events_details[event_key_sub]['time'] = new_time
+                                sent_events_details[event_key_sub]['correction_sent'] = True
+                                continue
+                            else:
+                                # Grande différence = nouveau but du même joueur (doublon/triplé)
+                                log_message(f"Nouveau but détecté pour le même joueur (différence de {time_difference} min): {old_time}' vs {new_time}'")
+                                # Ne pas continuer, traiter comme un nouveau but
                         else:
-                            # Grande différence = nouveau but du même joueur (doublon/triplé)
-                            log_message(f"Nouveau but détecté pour le même joueur (différence de {time_difference} min): {old_time}' vs {new_time}'")
-                            # Ne pas continuer, traiter comme un nouveau but
-                    else:
-                        # Même timing ou correction déjà envoyée = ignorer
-                        continue
+                            # Même timing ou correction déjà envoyée = ignorer
+                            continue
                 
-                if event_key in sent_events:
-                    continue
+                    if event_key in sent_events:
+                        continue
 
-                if event['type'] == "Goal":
-                    log_message(f"type == Goal")
-                    log_message(f"Données de score récupéré dans match_data pour la variable new_score : {new_score}")
-                    log_message(f"Previous score : {previous_score}")
-                    log_message(f"Contenu de l'event de type goal :\n {event}\n\n")
+                    if event['type'] == "Goal":
+                        log_message(f"type == Goal")
+                        log_message(f"Données de score récupéré dans match_data pour la variable new_score : {new_score}")
+                        log_message(f"Previous score : {previous_score}")
+                        log_message(f"Contenu de l'event de type goal :\n {event}\n\n")
 
-                    # Traiter le but avec la fonction helper
-                    goal_info, should_update_score, is_first_event = await process_goal_event(
-                        event, match_data, elapsed_time, current_score, previous_score,
-                        is_first_event, IS_PAID_API, match_status
-                    )
+                        # Traiter le but avec la fonction helper
+                        goal_info, should_update_score, is_first_event = await process_goal_event(
+                            event, match_data, elapsed_time, current_score, previous_score,
+                            is_first_event, IS_PAID_API, match_status
+                        )
                     
-                    if goal_info:
-                        goal_events.append(goal_info)
-                        score_updated = score_updated or should_update_score
-                    else:
-                        # Événement déjà traité ou non valide
+                        if goal_info:
+                            goal_events.append(goal_info)
+                            score_updated = score_updated or should_update_score
+                        else:
+                            # Événement déjà traité ou non valide
+                            sent_events.add(event_key)
+                            continue
+
+                    # Gestion des buts annulés par le VAR (doit être au même niveau que Goal, pas imbriqué)
+                    elif event['type'] == "Var" and "Goal Disallowed" in (event.get('detail') or ''):
+                        log_message("But annulé détecté par le VAR")
+                        team = event['team']
+                        new_score_var = {
+                            'home': match_data['goals']['home'],
+                            'away': match_data['goals']['away']
+                        }
+                        # Vérifier si le score a diminué
+                        if new_score_var['home'] < current_score['home'] or new_score_var['away'] < current_score['away']:
+                            await send_goal_cancelled_message(current_score, new_score_var)
+                            previous_score = current_score.copy()
+                            current_score = new_score_var.copy()
+                        else:
+                            log_message("Le score n'a pas changé après l'annulation du but")
                         sent_events.add(event_key)
                         continue
 
-                # Gestion des buts annulés par le VAR (doit être au même niveau que Goal, pas imbriqué)
-                elif event['type'] == "Var" and "Goal Disallowed" in event['detail']:
-                    log_message("But annulé détecté par le VAR")
-                    team = event['team']
-                    new_score_var = {
-                        'home': match_data['goals']['home'],
-                        'away': match_data['goals']['away']
-                    }
-                    # Vérifier si le score a diminué
-                    if new_score_var['home'] < current_score['home'] or new_score_var['away'] < current_score['away']:
-                        await send_goal_cancelled_message(current_score, new_score_var)
-                        previous_score = current_score.copy()
-                        current_score = new_score_var.copy()
-                    else:
-                        log_message("Le score n'a pas changé après l'annulation du but")
-                    sent_events.add(event_key)
-                    continue
+                    elif event['type'] == "Card" and event['detail'] == "Red Card":
+                        log_message(f"Carton rouge détecté")
+                        player = event['player']
+                        team = event['team']
 
-                elif event['type'] == "Card" and event['detail'] == "Red Card":
-                    log_message(f"Carton rouge détecté")
-                    player = event['player']
-                    team = event['team']
-
-                    log_message(f"Contenu de l'event de type carton rouge :\n {event}\n\n")
+                        log_message(f"Contenu de l'event de type carton rouge :\n {event}\n\n")
                     
-                    # Vérifiez si le joueur n'est pas None et si son nom est présent
-                    if player is not None and 'name' in player:
-                        # Vérifiez si l'événement de carton rouge est dans les dernières minutes
-                        current_elapsed_time = elapsed_time
-                        red_card_elapsed_time = event['time']['elapsed']
-                        allowed_difference = -10
-                        log_message(f"if {red_card_elapsed_time} >= {current_elapsed_time} + {allowed_difference}")
+                        # Vérifiez si le joueur n'est pas None et si son nom est présent
+                        if player is not None and 'name' in player:
+                            # Vérifiez si l'événement de carton rouge est dans les dernières minutes
+                            current_elapsed_time = elapsed_time
+                            red_card_elapsed_time = event['time']['elapsed']
+                            allowed_difference = -10
+                            log_message(f"if {red_card_elapsed_time} >= {current_elapsed_time} + {allowed_difference}")
 
-                        if red_card_elapsed_time is not None and current_elapsed_time is not None and red_card_elapsed_time >= current_elapsed_time + allowed_difference:
-                            await send_red_card_message(player, team, event['time']['elapsed'], event)
-                            log_message(f"event_key enregistrée : {event_key}")
-                            sent_events.add(event_key)
+                            if red_card_elapsed_time is not None and current_elapsed_time is not None and red_card_elapsed_time >= current_elapsed_time + allowed_difference:
+                                await send_red_card_message(player, team, event['time']['elapsed'], event)
+                                log_message(f"event_key enregistrée : {event_key}")
+                                sent_events.add(event_key)
+                            else:
+                                log_message(f"Le carton rouge a été donné il y a plus de 10 minutes. Le message n'a pas été envoyé.")
                         else:
-                            log_message(f"Le carton rouge a été donné il y a plus de 10 minutes. Le message n'a pas été envoyé.")
-                    else:
-                        log_message(f"Le nom du joueur est manquant ou 'player' est None, le message de carton rouge n'a pas été envoyé")
-                        continue
+                            log_message(f"Le nom du joueur est manquant ou 'player' est None, le message de carton rouge n'a pas été envoyé")
+                            continue
+                # Le dépassement de quota API doit toujours remonter pour arrêter le suivi
+                except RateLimitExceededError:
+                    raise
+                except Exception as e:
+                    # Un événement mal formé (ex: 'detail' à null pendant une vérification VAR)
+                    # ne doit pas interrompre tout le suivi du match : on le journalise
+                    # avec sa trace et on passe à l'événement suivant.
+                    log_message(f"Événement ignoré (erreur de traitement) : {e} — {event}\n{traceback.format_exc()}", "ERROR")
+                    continue
             
             #Fin de la boucle for event in events:
 
@@ -1745,11 +1769,23 @@ async def check_events(fixture_id):
                 log_cost_summary()
                 break
 
+            # Cycle terminé sans erreur : remise à zéro du compteur d'erreurs consécutives
+            consecutive_errors = 0
+
         # Si le nombre d'appels à l'API restant est dépassé, on lève une exception et on sort de la boucle !
         except RateLimitExceededError as e:
             log_message(f"Erreur : {e}")
             # Propagez l'exception pour sortir de la boucle
             raise e
+        # Toute autre erreur inattendue ne doit pas tuer le suivi du match : on la journalise
+        # (avec la trace complète) et on retente au prochain cycle. Au-delà du seuil d'erreurs
+        # consécutives, on abandonne pour ne pas boucler indéfiniment sur une erreur persistante.
+        except Exception as e:
+            consecutive_errors += 1
+            log_message(f"Erreur inattendue dans check_events ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}) : {e}\n{traceback.format_exc()}", "ERROR")
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                log_message(f"Trop d'erreurs consécutives dans check_events, arrêt du suivi du match {fixture_id}.", "ERROR")
+                break
 
         # Pause avant de vérifier à nouveau les événements
         await asyncio.sleep(interval)
