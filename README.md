@@ -188,10 +188,16 @@ Verified on a simulated 40-match season with periodic postponements: the history
 * ✅ **[SOLVED — v2.8.0]** The script could not be stopped with Ctrl+C or `kill` (only `SIGKILL` worked), and Telegram messages with invalid LLM-generated Markdown were silently lost
   * **Resolution**: Proper signal handlers (log + clean exit) and a plain-text retry fallback for Telegram.
 
+* ✅ **[SOLVED — v2.8.6]** Live tracking silently stopped mid-match (no more goals, no final score, no analysis) when api-football published a `Var` event with a `null` `detail` during an ongoing VAR review — the `"Goal Disallowed" in event['detail']` test raised a `TypeError` that escaped `check_events()`
+  * **Resolution**: `None`-safe VAR test, per-event `try/except` (a malformed event is logged with its traceback and skipped), loop-level safety net capped at 10 consecutive errors, and the `current_tracked_fixture_id` guard is now released when tracking ends.
+
+* ✅ **[SOLVED — v2.8.7]** The "📈 Saison" block and the season context injected into the AI prompts always showed the same numbers — they came from the wrong competition (e.g. the national cup instead of the league)
+  * **Resolution**: `is_match_today()` set `current_league_id` for every monitored league with an upcoming fixture, so it ended on the last league of `LEAGUE_IDS` with a scheduled match. It is now set only from the fixture identified as today's match.
+
 ### **Circumvented Issues** 🕹️
 
 * **[🕹️ CIRCUMVENTED — v2.5.1]** [Free API] In very rare instances, a disallowed goal could go undetected if two scored goals were identified — including one that was later disallowed — within the same interval between two checks.
-  * **Status**: Mitigated by a dual-layer safety net in the live-event loop: (1) explicit handling of `Var` events with `"Goal Disallowed"` detail (`gptfoot.py:1359-1375`), and (2) a backup score-decrease detector that fires `send_goal_cancelled_message` whenever `current_score < previous_score` (`gptfoot.py:1461-1465`). Residual probability **< 1%**, and even in that residual case the displayed score remains accurate.
+  * **Status**: Mitigated by a dual-layer safety net in the live-event loop: (1) explicit handling of `Var` events with `"Goal Disallowed"` detail (in `check_events()`, `None`-safe since v2.8.6), and (2) a backup score-decrease detector that fires `send_goal_cancelled_message` whenever `current_score < previous_score` (`gptfoot.py:1461-1465`). Residual probability **< 1%**, and even in that residual case the displayed score remains accurate.
 
 * **[🕹️ CIRCUMVENTED]** [Free API] Some events occurring in the very last seconds of a period may not be detected
   * **Status**: Inherent limitation of the free api-football tier — the live-polling interval (~80-100 s) is constrained by the 100 req/day quota and cannot be shortened without exceeding it. The bot is calibrated to maximize coverage (85 polls/match target) while leaving margin for season-stats and lineup calls. **Recommendation**: subscribe to a paid api-football plan and set `IS_PAID_API = true` for full 15 s polling.
@@ -208,7 +214,7 @@ Verified on a simulated 40-match season with periodic postponements: the history
 * API costs are tracked and summarized at the end of each match (when enabled in `config.ini`)
 * Match analyses are stored locally in `match_analyses.json` for contextual AI insights
 * The last announced fixture is stored in `announced_fixture.json` so a server reboot on a match day does not re-announce the same match (tracking still resumes normally)
-* Season stats are NOT persisted on disk — they are fetched once per match and cached only in memory for the duration of that match
+* Season stats are fetched once per match **for the competition of the day's match** (league, cup, European competition…) and cached only in memory for the duration of that match — they are NOT persisted on disk
 * [Free API] Due to API call limitations, 5-minute breaks during extra time are considered as regular half-times, causing the script to pause for 13 minutes
 * [Free API] Due to API call limitations, during penalty shootout sessions, the script pauses for 20 minutes (good to know but penalty goals are managed differently than goals during a match)
 * [Free API] Live-polling interval is computed dynamically based on whether the league is listed in `LEAGUES_WITH_EXTRA_TIME` (longer total budget when extra time is possible). Target = 85 polls per match, leaving margin for `is_match_today`, lineups, and `/teams/statistics` calls under the 100 req/day quota.
