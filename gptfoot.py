@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 # AUTEUR :  Rymentz (https://github.com/Macmachi/gptfoot)
-# VERSION : v2.8.6
+# VERSION : v2.8.7
 # LICENCE : Attribution-NonCommercial 4.0 International
 #
 import asyncio
@@ -1107,7 +1107,9 @@ async def is_match_today(max_retries=3):
     responses = []
     # déclaration de la variable comme globale
     global current_league_id
-    # Variable pour stocker l'ID de la ligue en cours de traitement
+    # ID de la ligue du match du jour (None s'il n'y a pas de match aujourd'hui).
+    # Il n'est affecté QUE lorsque le match du jour est identifié plus bas : il sert ensuite
+    # aux stats de saison (/teams/statistics) et à la détection des prolongations.
     current_league_id = None
     # Flag pour distinguer "API OK mais aucun match programmé" (fin de saison / intersaison)
     # de "API réellement indisponible" (5xx, timeout, réseau...). Sans ce flag, le bot
@@ -1130,7 +1132,10 @@ async def is_match_today(max_retries=3):
                             data = await resp.json()
                             if data.get('response'):
                                 responses.append(data)
-                                current_league_id = LEAGUE_ID
+                                # NB : on ne fixe PAS current_league_id ici. Chaque ligue ayant un
+                                # prochain match (next=1) passerait par là, et la variable finirait
+                                # sur la dernière ligue de la liste (ex: la Coupe) même si le match
+                                # du jour est en championnat -> stats de saison de la mauvaise ligue.
                             else:
                                 # 200 OK mais response vide = pas de prochain match dans cette ligue
                                 # (typiquement : fin de saison / intersaison). Pas une erreur.
@@ -1207,6 +1212,8 @@ async def is_match_today(max_retries=3):
 
             if match_date == today:
                 match_today = True
+                # Ligue du match du jour (celle du fixture retenu, pas la dernière ligue interrogée)
+                current_league_id = league_data['id']
                 match_start_datetime = datetime.datetime.strptime(fixture_data['date'], '%Y-%m-%dT%H:%M:%S%z')
                 match_start_datetime = match_start_datetime.astimezone(server_timezone)
                 match_start_time = match_start_datetime.time()

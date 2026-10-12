@@ -14,7 +14,7 @@
   * [`[LEAGUE_TYPES]`](#league_types-optional-new-in-v260)
 * [📋 Good to know](#-good-to-know)
 * [🆕 Changelog](#-changelog)
-  * [v2.8.6](#-whats-new-in-v286) · [v2.8.5](#-whats-new-in-v285) · [v2.8.4](#-whats-new-in-v284) · [v2.8.3](#-whats-new-in-v283) · [v2.8.2](#-whats-new-in-v282) · [v2.8.1](#-whats-new-in-v281) · [v2.8.0](#-whats-new-in-v280)
+  * [v2.8.7](#-whats-new-in-v287) · [v2.8.6](#-whats-new-in-v286) · [v2.8.5](#-whats-new-in-v285) · [v2.8.4](#-whats-new-in-v284) · [v2.8.3](#-whats-new-in-v283) · [v2.8.2](#-whats-new-in-v282) · [v2.8.1](#-whats-new-in-v281) · [v2.8.0](#-whats-new-in-v280)
   * [v2.7.0](#-whats-new-in-v270) · [v2.6.1](#-whats-new-in-v261) · [v2.6.0](#-whats-new-in-v260) · [v2.5.0](#-whats-new-in-v250)
 * [✅ Known Issues - Resolution Status](#-known-issues---resolution-status)
 * [📊 Technical Improvements](#-technical-improvements)
@@ -50,6 +50,9 @@ gptfoot is a bot for Telegram and Discord, meticulously designed to track match 
 * Configurable AI models (OpenRouter API)
 
 ## 🆕 Changelog
+
+## 🆕 What's New in v2.8.7
+* ✅ **Fix — Season stats were taken from the wrong competition**: the "📈 Saison" block at the end of a match (and the season context injected into the AI prompts for the lineup and post-match analyses) never seemed to update. Cause: `is_match_today()` assigned `current_league_id` for **every** monitored league that had an upcoming fixture (`next=1`), so the variable always ended on the last league of `LEAGUE_IDS` that had a scheduled match — typically the national cup — even when today's match was a league game. `/teams/statistics` was then queried for the cup (e.g. "1 played, 7-0") while the header showed the league name. `current_league_id` is now set only from the fixture actually identified as today's match. **No additional api-football call, no extra LLM call, no change to message formats.**
 
 ## 🆕 What's New in v2.8.6
 * ✅ **Fix — Live tracking no longer dies on a VAR event without detail**: during an ongoing VAR review, api-football can publish a `Var` event whose `detail` is `null`. The `"Goal Disallowed" in event['detail']` test then raised `TypeError: argument of type 'NoneType' is not iterable`, the exception escaped `check_events` and the bot silently stopped following the match (no more goals, no final score, no analysis). The test is now `None`-safe.
